@@ -1,0 +1,6 @@
+services:
+  clonevocrecord:
+    image: clonevocrecord
+    build:
+      context: .
+      dockerfile: ./Dockerfile

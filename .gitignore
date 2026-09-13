@@ -1,0 +1,30 @@
+# Phụ thuộc
+node_modules/
+*.npm-cache/
+.docker-config/
+DiaNhac/node_modules/
+server/node_modules/
+vendor/
+
+# Build
+dist/
+DiaNhac/dist/
+
+# Bí mật — TUYỆT ĐỐI không commit
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+api/config/mail_config.local.php
+api/config/payos.local.php
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Log
+*.log
+

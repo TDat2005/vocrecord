@@ -1,0 +1,101 @@
+/* ============================================
+   ACCOUNT PAGE
+   ============================================ */
+
+.account-tabs {
+  background: #fff;
+  border: 2px solid #000;
+  margin-bottom: 1.5rem;
+  overflow-x: auto;
+}
+
+.account-tabs-inner {
+  display: flex;
+  border-bottom: 1px solid #000;
+}
+
+.account-tab {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 1rem 1.5rem;
+  font-weight: 700;
+  transition: all var(--transition-base);
+  white-space: nowrap;
+  min-width: max-content;
+  text-transform: uppercase;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.account-tab:hover {
+  background: var(--gray-100);
+}
+
+.account-tab--active {
+  background: #000;
+  color: #fff;
+}
+
+.account-tab--active:hover {
+  background: #000;
+}
+
+.account-content {
+  background: #fff;
+  border: 2px solid #000;
+  padding: 1.5rem;
+}
+
+@media (min-width: 768px) {
+  .account-content {
+    padding: 2rem;
+  }
+}
+
+/* Order Cards */
+.order-card {
+  border: 2px solid #000;
+  padding: 1rem;
+  transition: box-shadow var(--transition-base);
+}
+
+@media (min-width: 768px) {
+  .order-card {
+    padding: 1.5rem;
+  }
+}
+
+.order-card:hover {
+  box-shadow: var(--shadow-neo-sm);
+}
+
+.order-card-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.order-status {
+  padding: 0.25rem 0.75rem;
+  font-size: 0.875rem;
+  font-weight: 700;
+  border: 2px solid #000;
+  text-transform: uppercase;
+}
+
+.order-status--pending { background: #fef9c3; color: #854d0e; }
+.order-status--confirmed { background: #e0e7ff; color: #3730a3; }
+.order-status--processing { background: #dbeafe; color: #1e40af; }
+.order-status--shipping { background: #f3e8ff; color: #6b21a8; }
+.order-status--completed { background: #dcfce7; color: #166534; }
+.order-status--canceled { background: #fee2e2; color: #991b1b; }
+
+.order-actions {
+  display: flex;
+  gap: 0.75rem;
+}

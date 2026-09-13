@@ -1,0 +1,25 @@
+
+  <!DOCTYPE html>
+  <html lang="vi">
+    <head>
+      <meta charset="UTF-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+      <title>Vọc Records - Đĩa Than, Cassette & Mâm Đĩa Nhạc</title>
+      <link rel="icon" type="image/png" href="/images/voc_logo_new.png" />
+      <script>
+        // Redirect non-hash routes to hash router (e.g. from PayOS /payment-result?orderCode=... -> /#/payment-result?orderCode=...)
+        (function() {
+          var pathname = window.location.pathname;
+          if (pathname && pathname !== '/' && !window.location.hash) {
+            window.location.replace('/#' + pathname + window.location.search);
+          }
+        })();
+      </script>
+    </head>
+
+    <body>
+      <div id="root"></div>
+      <script type="module" src="/src/main.tsx"></script>
+    </body>
+  </html>
+  

@@ -1,0 +1,38 @@
+.chat-page { padding: 2.5rem 0 4rem; }
+.chat-page-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; margin-bottom: 1.5rem; }
+.chat-page-heading svg { background: var(--neon-yellow); border: 2px solid #000; padding: .55rem; width: 4rem; height: 4rem; box-shadow: 4px 4px 0 #000; }
+.chat-panel { max-width: 900px; margin: 0 auto; border: 2px solid #000; background: #fff; box-shadow: 6px 6px 0 #000; }
+.chat-panel-header, .admin-chat-room-header { display: flex; justify-content: space-between; align-items: center; gap: 1rem; padding: 1rem 1.25rem; border-bottom: 2px solid #000; background: var(--neon-yellow); }
+.chat-panel-header strong, .chat-panel-header span { display: block; }
+.chat-panel-header span { font-size: .8rem; margin-top: .25rem; color: var(--gray-700); }
+.chat-connection { display: inline-flex !important; align-items: center; gap: .3rem; font-weight: 800; white-space: nowrap; }
+.chat-connection.connected { color: #15803d; }
+.chat-connection.offline { color: #92400e; }
+.chat-messages, .admin-chat-messages { min-height: 420px; max-height: 55vh; overflow-y: auto; display: flex; flex-direction: column; gap: .75rem; padding: 1.25rem; background: #f5f5f5; }
+.chat-bubble { max-width: 78%; padding: .75rem 1rem; border: 2px solid #000; font-weight: 600; white-space: pre-wrap; overflow-wrap: anywhere; }
+.chat-bubble--customer { align-self: flex-end; background: var(--neon-yellow); }
+.chat-bubble--staff { align-self: flex-start; background: #fff; }
+.chat-bubble small { display: block; margin-top: .45rem; font-size: .7rem; color: var(--gray-600); font-weight: 500; }
+.chat-empty { flex: 1; display: grid; place-items: center; text-align: center; color: var(--gray-600); font-weight: 700; padding: 2rem; }
+.chat-compose { display: flex; gap: .75rem; padding: 1rem; border-top: 2px solid #000; background: #fff; }
+.chat-compose textarea { flex: 1; resize: vertical; min-height: 3.2rem; border: 2px solid #000; padding: .75rem; font: inherit; }
+.chat-compose button { align-self: stretch; min-width: 6rem; }
+.chat-login-state { min-height: 60vh; display: grid; place-items: center; align-content: center; gap: .75rem; text-align: center; }
+.chat-login-state h1 { margin: 0; font-family: var(--font-heading); }
+.chat-login-state p { margin: 0 0 .75rem; color: var(--gray-600); }
+.admin-chat-layout { display: grid; grid-template-columns: 19rem 1fr; min-height: 650px; border: 2px solid #000; background: #fff; }
+.admin-chat-list { border-right: 2px solid #000; padding: 1rem; background: var(--gray-100); overflow-y: auto; }
+.admin-chat-list h3 { margin: 0; font-family: var(--font-heading); }
+.admin-chat-list > p { color: var(--gray-600); }
+.admin-chat-conversation { width: 100%; display: block; text-align: left; border: 2px solid #000; background: #fff; padding: .75rem; margin-top: .75rem; cursor: pointer; }
+.admin-chat-conversation.active { background: var(--neon-yellow); box-shadow: 3px 3px 0 #000; }
+.admin-chat-conversation strong, .admin-chat-conversation small, .admin-chat-conversation span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.admin-chat-conversation small { margin: .25rem 0; color: var(--gray-600); }
+.admin-chat-conversation span { font-size: .75rem; }
+.admin-chat-conversation b { float: right; background: #dc2626; color: #fff; padding: .1rem .35rem; }
+.admin-chat-room { min-width: 0; display: flex; flex-direction: column; }
+.admin-chat-room-header { background: #fff; }
+.admin-chat-room-header h3 { margin: 0 0 .25rem; font-family: var(--font-heading); }
+.admin-chat-room-header small { color: var(--gray-600); }
+.admin-chat-messages { flex: 1; max-height: none; min-height: 0; }
+@media (max-width: 760px) { .chat-page-heading { flex-direction: column; } .chat-panel-header { align-items: flex-start; flex-direction: column; } .chat-compose { flex-direction: column; } .admin-chat-layout { grid-template-columns: 1fr; } .admin-chat-list { border-right: 0; border-bottom: 2px solid #000; max-height: 18rem; } }

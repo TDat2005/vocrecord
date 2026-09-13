@@ -1,0 +1,10 @@
+RewriteEngine On
+
+# Không can thiệp vào /api (để PHP xử lý) và file/thư mục có thật
+RewriteCond %{REQUEST_URI} ^/api/ [OR]
+RewriteCond %{REQUEST_FILENAME} -f [OR]
+RewriteCond %{REQUEST_FILENAME} -d
+RewriteRule ^ - [L]
+
+# Mọi route còn lại -> trả về index.html cho React Router
+RewriteRule ^ /index.html [L]

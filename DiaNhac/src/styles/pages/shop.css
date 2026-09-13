@@ -1,0 +1,9 @@
+/* Shop-specific styles (extends shared catalog patterns) */
+.shop-page .product-card-badge {
+  font-size: 10px;
+}
+@media (min-width: 768px) {
+  .shop-page .product-card-badge {
+    font-size: 0.75rem;
+  }
+}
