@@ -1,0 +1,72 @@
+# Triển khai production (VPS): https://ngtiendat.id.vn
+# Image do GitHub Actions build sẵn (ghcr.io). Biến môi trường đọc từ file .env cạnh file này
+# (mẫu: deploy/compose.env.example) và deploy/server.env (mẫu: deploy/server.env.example).
+services:
+  db:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Thiếu MYSQL_ROOT_PASSWORD trong .env}
+      MYSQL_DATABASE: clonevocrecord
+    command: --default-time-zone=+07:00
+    volumes:
+      - db_data:/var/lib/mysql
+      # Chỉ chạy khi volume còn trống (lần đầu). Không nạp các file backup_*.sql.
+      - ./database/01_init_database.sql:/docker-entrypoint-initdb.d/01_init_database.sql:ro
+      - ./database/02_migrate.sql:/docker-entrypoint-initdb.d/02_migrate.sql:ro
+      - ./database/03_migrate_email_otp.sql:/docker-entrypoint-initdb.d/03_migrate_email_otp.sql:ro
+      - ./database/04_fix_broken_images.sql:/docker-entrypoint-initdb.d/04_fix_broken_images.sql:ro
+      - ./database/05_seed_content_catalog.sql:/docker-entrypoint-initdb.d/05_seed_content_catalog.sql:ro
+      - ./database/06_migrate_shipping_interactions.sql:/docker-entrypoint-initdb.d/06_migrate_shipping_interactions.sql:ro
+      - ./database/07_migrate_chat_and_indexes.sql:/docker-entrypoint-initdb.d/07_migrate_chat_and_indexes.sql:ro
+      - ./database/migrate_08_fk_restrict_sanpham.sql:/docker-entrypoint-initdb.d/08_fk_restrict_sanpham.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p$${MYSQL_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  api:
+    image: ghcr.io/${GHCR_OWNER:-tdat2005}/vocrecord-api:${IMAGE_TAG:-latest}
+    env_file:
+      - deploy/server.env
+    environment:
+      DB_HOST: db
+      DB_PORT: 3306
+      DB_USER: root
+      DB_PASS: ${MYSQL_ROOT_PASSWORD}
+      DB_NAME: clonevocrecord
+      PORT: 3000
+      TZ: Asia/Ho_Chi_Minh
+      TRUST_PROXY_HOPS: 2   # Caddy -> Nginx -> API
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  web:
+    image: ghcr.io/${GHCR_OWNER:-tdat2005}/vocrecord-web:${IMAGE_TAG:-latest}
+    depends_on:
+      - api
+    restart: unless-stopped
+
+  # Caddy: tự xin và gia hạn chứng chỉ HTTPS (Let's Encrypt) cho tên miền
+  caddy:
+    image: caddy:2-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN:-ngtiendat.id.vn}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - web
+    restart: unless-stopped
+
+volumes:
+  db_data:
+  caddy_data:
+  caddy_config:

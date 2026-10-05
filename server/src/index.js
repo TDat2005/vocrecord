@@ -13,7 +13,9 @@ const path = require('path');
 
 const app = express();
 const httpServer = http.createServer(app);
-app.set('trust proxy', 1);
+// Số lớp proxy phía trước API: dev/docker-compose = 1 (Nginx); production = 2 (Caddy -> Nginx).
+// Đặt đúng để req.ip là IP thật của người dùng (dùng cho giới hạn số lần đăng nhập/gửi OTP).
+app.set('trust proxy', Number(process.env.TRUST_PROXY_HOPS || 1));
 const allowedOrigins = (process.env.CORS_ORIGINS || 'http://localhost:8080,http://localhost:5173')
     .split(',')
     .map((origin) => origin.trim())

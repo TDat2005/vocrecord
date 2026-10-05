@@ -28,3 +28,7 @@ Thumbs.db
 # Log
 *.log
 
+
+# Triển khai
+deploy/*.env
+server/tests/api-test-result.json
