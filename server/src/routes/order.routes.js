@@ -135,7 +135,12 @@ router.post('/', authenticate, async (req, res, next) => {
                 productError.status = 400;
                 throw productError;
             }
-            if (['hethang', 'ngungkinhdoanh'].includes(product.TinhTrang) || Number(product.SoLuongTon) < quantity) {
+            if (product.TinhTrang === 'ngungkinhdoanh') {
+                const stopError = new Error(`Sản phẩm "${product.TenSP}" đã ngừng kinh doanh`);
+                stopError.status = 409;
+                throw stopError;
+            }
+            if (product.TinhTrang === 'hethang' || Number(product.SoLuongTon) < quantity) {
                 const stockError = new Error(`Sản phẩm "${product.TenSP}" không đủ tồn kho`);
                 stockError.status = 409;
                 throw stockError;
@@ -260,7 +265,22 @@ router.get('/', authenticate, async (req, res, next) => {
     }
 });
 
+// Quy tắc chuyển trạng thái đơn hàng (máy trạng thái):
+// choxacnhan -> daxacnhan -> dangchuanbihang -> danggiaohang -> hoanthanh
+// Chỉ được đi tiếp (có thể bỏ qua bước), không được quay lui.
+// Được hủy (dahuy) khi đơn chưa ở danggiaohang. hoanthanh và dahuy là trạng thái cuối.
+const ORDER_FLOW = ['choxacnhan', 'daxacnhan', 'dangchuanbihang', 'danggiaohang', 'hoanthanh'];
+const canTransition = (from, to) => {
+    if (from === to) return false;
+    if (from === 'hoanthanh' || from === 'dahuy') return false;
+    if (to === 'dahuy') return ORDER_FLOW.indexOf(from) < ORDER_FLOW.indexOf('danggiaohang');
+    const fromIdx = ORDER_FLOW.indexOf(from);
+    const toIdx = ORDER_FLOW.indexOf(to);
+    return fromIdx !== -1 && toIdx > fromIdx;
+};
+
 router.put('/:id/status', ...staff, async (req, res, next) => {
+    let connection;
     try {
         const orderId = req.params.id;
         const { status } = req.body;
@@ -269,29 +289,87 @@ router.put('/:id/status', ...staff, async (req, res, next) => {
             return res.status(400).json({ success: false, message: 'Dữ liệu không hợp lệ' });
         }
 
-        const allowedStatuses = ['choxacnhan', 'daxacnhan', 'dangchuanbihang', 'danggiaohang', 'hoanthanh', 'dahuy'];
+        const allowedStatuses = [...ORDER_FLOW, 'dahuy'];
         if (!allowedStatuses.includes(status)) return res.status(400).json({ success: false, message: 'Trạng thái đơn hàng không hợp lệ' });
+
+        const order = await DonHangModel.getById(orderId);
+        if (!order) return res.status(404).json({ success: false, message: 'Đơn hàng không tồn tại' });
+
+        if (!canTransition(order.TrangThai, status)) {
+            return res.status(400).json({
+                success: false,
+                message: `Không thể chuyển đơn từ "${order.TrangThai}" sang "${status}"`
+            });
+        }
+        // Giống quy tắc ở /cancel: đơn đã có vận đơn GHN thì chỉ Admin được hủy.
+        if (status === 'dahuy' && order.MaDonGHN && req.user.role !== 'admin') {
+            return res.status(403).json({ success: false, message: `Đơn đã có mã vận đơn GHN (${order.MaDonGHN}), chỉ Admin được hủy.` });
+        }
+
         const [staffRows] = await pool.query('SELECT MaNV FROM NhanVien WHERE MaTK = ?', [req.user.id]);
         const employeeId = staffRows[0]?.MaNV || null;
-        const updated = await DonHangModel.updateStatus(orderId, status, employeeId);
-        if (updated) {
-            try {
-                const order = await DonHangModel.getById(orderId);
-                if (order && order.MaKH) {
-                    const customer = await KhachHangModel.getProfile(order.MaKH);
-                    if (customer && customer.Email) {
-                        await EmailService.sendOrderStatusUpdate(customer.Email, orderId, status);
-                    }
-                }
-            } catch (emailErr) {
-                console.error('Status email error:', emailErr.message);
-            }
 
-            res.json({ success: true, message: 'Cập nhật trạng thái thành công' });
-        } else {
-            res.json({ success: false, message: 'Lỗi cập nhật' });
+        connection = await pool.getConnection();
+        await connection.beginTransaction();
+
+        // Điều kiện TrangThai = trạng thái cũ để tránh 2 người cập nhật cùng lúc.
+        const [upd] = await connection.execute(
+            'UPDATE DonHang SET TrangThai = ?, MaNVXuLy = ? WHERE MaDH = ? AND TrangThai = ?',
+            [status, employeeId, orderId, order.TrangThai]
+        );
+        if (!upd.affectedRows) {
+            const conflict = new Error('Đơn hàng vừa được người khác cập nhật, vui lòng tải lại');
+            conflict.status = 409;
+            throw conflict;
         }
+
+        if (status === 'dahuy') {
+            // Hoàn tồn kho
+            const items = await DonHangModel.getOrderItems(orderId, connection);
+            for (const item of items) {
+                await SanPhamModel.updateStock(item.MaSP, item.SoLuong, connection);
+            }
+            if (order.TrangThaiTT === 'dathanhtoan') {
+                // Đã thanh toán online: chuyển sang chờ hoàn tiền, nhân viên liên hệ khách lấy thông tin ngân hàng.
+                await connection.execute(
+                    "UPDATE DonHang SET TrangThaiHoanTien = 'choxuly' WHERE MaDH = ?",
+                    [orderId]
+                );
+            } else {
+                await connection.execute(
+                    "UPDATE ThanhToan SET TrangThaiTT = 'thatbai', NgayTT = NOW() WHERE MaDH = ? AND TrangThaiTT = 'chuathanhtoan'",
+                    [orderId]
+                );
+            }
+        }
+
+        await connection.execute(
+            'INSERT INTO NhatKyHoatDong (MaTK, HanhDong, NoiDung) VALUES (?, ?, ?)',
+            [req.user.id, 'Cập nhật trạng thái đơn hàng', `Đơn #${orderId}: ${order.TrangThai} -> ${status}`]
+        );
+
+        await connection.commit();
+        connection.release();
+        connection = null;
+
+        try {
+            if (order.MaKH) {
+                const customer = await KhachHangModel.getProfile(order.MaKH);
+                if (customer && customer.Email) {
+                    await EmailService.sendOrderStatusUpdate(customer.Email, orderId, status);
+                }
+            }
+        } catch (emailErr) {
+            console.error('Status email error:', emailErr.message);
+        }
+
+        res.json({ success: true, message: 'Cập nhật trạng thái thành công' });
     } catch (error) {
+        if (connection) {
+            await connection.rollback();
+            connection.release();
+        }
+        if (Number.isInteger(error.status)) return res.status(error.status).json({ success: false, message: error.message });
         next(error);
     }
 });
@@ -502,7 +580,30 @@ router.get('/:id/status', authenticate, async (req, res, next) => {
                         await pool.query("UPDATE DonHang SET TrangThai = 'daxacnhan' WHERE MaDH = ? AND TrangThai = 'choxacnhan'", [orderId]);
                         return res.json({ success: true, status: 'dathanhtoan' });
                     } else if (payosStatus === 'CANCELLED' || payosStatus === 'EXPIRED') {
-                        await pool.query("UPDATE ThanhToan SET TrangThaiTT = 'thatbai' WHERE MaDH = ?", [orderId]);
+                        // Hủy đơn + hoàn kho trong 1 transaction. Trước đây chỉ đặt ThanhToan = thatbai,
+                        // khiến tiến trình tự hủy (chỉ quét TrangThaiTT = chuathanhtoan) bỏ sót đơn và giữ tồn kho mãi.
+                        const conn = await pool.getConnection();
+                        try {
+                            await conn.beginTransaction();
+                            const [cancelled] = await conn.execute(
+                                "UPDATE DonHang SET TrangThai = 'dahuy' WHERE MaDH = ? AND TrangThai = 'choxacnhan'",
+                                [orderId]
+                            );
+                            await conn.execute(
+                                "UPDATE ThanhToan SET TrangThaiTT = 'thatbai', NgayTT = NOW() WHERE MaDH = ? AND TrangThaiTT = 'chuathanhtoan'",
+                                [orderId]
+                            );
+                            if (cancelled.affectedRows) {
+                                const items = await DonHangModel.getOrderItems(orderId, conn);
+                                for (const item of items) await SanPhamModel.updateStock(item.MaSP, item.SoLuong, conn);
+                            }
+                            await conn.commit();
+                        } catch (txErr) {
+                            await conn.rollback();
+                            throw txErr;
+                        } finally {
+                            conn.release();
+                        }
                         return res.json({ success: true, status: 'thatbai' });
                     }
                 }

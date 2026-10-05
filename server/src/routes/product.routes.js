@@ -122,7 +122,7 @@ router.delete('/:id', ...editor, async (req, res, next) => {
         }
         const success = await SanPhamModel.delete(id);
         if (success) {
-            res.json({ success: true, message: 'Đã xóa sản phẩm' });
+            res.json({ success: true, message: 'Đã chuyển sản phẩm sang Ngừng kinh doanh (giữ lịch sử đơn hàng)' });
         } else {
             res.json({ success: false, message: 'Lỗi xóa sản phẩm' });
         }

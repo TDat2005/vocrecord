@@ -6,6 +6,9 @@ import { API_BASE } from '../config/api';
 import '../../styles/pages/cart.css';
 
 
+// Phí vận chuyển cố định, khớp với Checkout.tsx và order.routes.js
+const SHIPPING_FEE = 30000;
+
 export function Cart() {
   const { items, removeFromCart, updateQuantity, getCartTotal, clearCart, appliedDiscount, setAppliedDiscount } = useCart();
   const [couponInput, setCouponInput] = useState('');
@@ -123,7 +126,7 @@ export function Cart() {
               </div>
               <div className="cart-summary-row" style={{ borderBottom: '2px solid #000', paddingBottom: '1rem' }}>
                 <span style={{ color: 'var(--gray-600)' }}>Phí vận chuyển</span>
-                <span>MIỄN PHÍ</span>
+                <span>{SHIPPING_FEE.toLocaleString('vi-VN')}đ</span>
               </div>
               {appliedDiscount && (
                 <div className="cart-summary-row" style={{ borderBottom: '2px dashed #000', paddingBottom: '1rem', color: 'var(--color-danger)' }}>
@@ -134,7 +137,7 @@ export function Cart() {
               <div className="cart-summary-total">
                 <span className="cart-summary-total-label">Tổng</span>
                 <span className="cart-summary-total-value">
-                  {(getCartTotal() - (appliedDiscount?.amount || 0)).toLocaleString('vi-VN')}đ
+                  {Math.max(0, getCartTotal() - (appliedDiscount?.amount || 0) + SHIPPING_FEE).toLocaleString('vi-VN')}đ
                 </span>
               </div>
 

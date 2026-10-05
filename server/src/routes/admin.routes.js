@@ -109,18 +109,44 @@ router.post('/import-stock', async (req, res, next) => {
         const employeeId = staffRows[0]?.MaNV;
         if (!employeeId) return res.status(403).json({ success: false, message: 'Tài khoản chưa có hồ sơ nhân viên' });
 
+        // Kiểm tra dữ liệu từng dòng nhập (khớp luồng phụ UC12 trong báo cáo):
+        // số lượng phải là số nguyên > 0, giá nhập >= 0, sản phẩm phải tồn tại.
+        const normalized = [];
+        for (const item of items) {
+            const id = Number(item.id);
+            const qty = Number(item.qty);
+            const price = Number(item.price);
+            if (!Number.isInteger(id) || id <= 0) {
+                return res.status(400).json({ success: false, message: 'Mã sản phẩm không hợp lệ' });
+            }
+            if (!Number.isInteger(qty) || qty <= 0) {
+                return res.status(400).json({ success: false, message: `Số lượng nhập của sản phẩm #${id} phải là số nguyên lớn hơn 0` });
+            }
+            if (!Number.isFinite(price) || price < 0) {
+                return res.status(400).json({ success: false, message: `Giá nhập của sản phẩm #${id} không hợp lệ` });
+            }
+            normalized.push({ id, qty, price });
+        }
+        const ids = [...new Set(normalized.map((i) => i.id))];
+        const [existing] = await pool.query('SELECT MaSP FROM SanPham WHERE MaSP IN (?)', [ids]);
+        if (existing.length !== ids.length) {
+            const found = new Set(existing.map((r) => r.MaSP));
+            const missing = ids.filter((id) => !found.has(id));
+            return res.status(400).json({ success: false, message: `Sản phẩm không tồn tại: #${missing.join(', #')}` });
+        }
+
         connection = await pool.getConnection();
         await connection.beginTransaction();
 
         let total = 0;
-        for (const item of items) {
+        for (const item of normalized) {
             total += (item.qty * item.price);
         }
 
         const [result] = await connection.query("INSERT INTO PhieuNhap (MaNV, TongTien, GhiChu) VALUES (?, ?, ?)", [employeeId, total, note]);
         const maPN = result.insertId;
 
-        for (const item of items) {
+        for (const item of normalized) {
             await connection.query("INSERT INTO ChiTietPhieuNhap (MaPN, MaSP, SoLuongNhap, GiaNhap) VALUES (?, ?, ?, ?)", [maPN, item.id, item.qty, item.price]);
             await connection.query("UPDATE SanPham SET SoLuongTon = SoLuongTon + ? WHERE MaSP = ?", [item.qty, item.id]);
         }

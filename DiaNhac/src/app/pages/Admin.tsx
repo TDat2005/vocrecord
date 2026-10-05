@@ -88,6 +88,9 @@ export function Admin() {
   const [customers, setCustomers] = useState<any[]>([]);
   const [inventory, setInventory] = useState<any[]>([]);
   const [revenueData, setRevenueData] = useState<any[]>([]);
+  // Khoảng thời gian báo cáo doanh thu (UC13 bước 2). Mặc định 30 ngày gần nhất.
+  const toISODate = (d: Date) => d.toISOString().split('T')[0];
+  const [revenueRange, setRevenueRange] = useState({ start: toISODate(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)), end: toISODate(new Date()) });
   const [searchQuery, setSearchQuery] = useState('');
   const [editingProduct, setEditingProduct] = useState<any>(null);
   const [contentItems, setContentItems] = useState<any[]>([]);
@@ -119,7 +122,13 @@ export function Admin() {
 
   const fetchDashboard = () => {
     fetch(`${API_BASE}/admin/dashboard`, { headers: adminHeaders }).then(res => res.json()).then(data => { if(data.success) setStats(data.data); }).catch(console.error);
-    fetch(`${API_BASE}/admin/revenue-report`, { headers: adminHeaders }).then(res => res.json()).then(data => { if(data.success) setRevenueData(data.data); }).catch(console.error);
+    fetchRevenue();
+  };
+
+  const fetchRevenue = (range = revenueRange) => {
+    if (range.start > range.end) { alert('Ngày bắt đầu phải trước ngày kết thúc'); return; }
+    const qs = new URLSearchParams({ start: range.start, end: range.end }).toString();
+    fetch(`${API_BASE}/admin/revenue-report?${qs}`, { headers: adminHeaders }).then(res => res.json()).then(data => { if(data.success) setRevenueData(data.data); }).catch(console.error);
   };
 
   const fetchOrders = () => {
@@ -571,9 +580,15 @@ export function Admin() {
               <div className="admin-stat-card admin-stat-card--green"><div className="admin-stat-label">TỔNG KHÁCH HÀNG</div><div className="admin-stat-value">{stats.totalCustomers}</div></div>
             </div>
             <div className="admin-table-box">
-              <h3 style={{ fontSize: '1.5rem', marginBottom: '1rem', fontFamily: 'var(--font-heading)' }}>Biểu đồ Doanh Thu (30 Ngày Trước)</h3>
+              <h3 style={{ fontSize: '1.5rem', marginBottom: '1rem', fontFamily: 'var(--font-heading)' }}>Biểu đồ Doanh Thu (đơn hoàn thành)</h3>
+              <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-end', flexWrap: 'wrap', marginBottom: '1rem' }}>
+                <div className="form-group"><label className="neo-label">Từ ngày</label><input type="date" className="neo-input" value={revenueRange.start} max={revenueRange.end} onChange={(e) => setRevenueRange({ ...revenueRange, start: e.target.value })} /></div>
+                <div className="form-group"><label className="neo-label">Đến ngày</label><input type="date" className="neo-input" value={revenueRange.end} min={revenueRange.start} onChange={(e) => setRevenueRange({ ...revenueRange, end: e.target.value })} /></div>
+                <button type="button" className="neo-btn" onClick={() => fetchRevenue()}>XEM</button>
+              </div>
+              {revenueData.length === 0 && <p style={{ marginBottom: '1rem' }}>Chưa có doanh thu trong khoảng thời gian này.</p>}
               <div style={{ width: '100%', height: '400px' }}>
-                <Bar data={{ labels: revenueData.map(r => r.date), datasets: [{ label: 'Doanh thu (VNĐ)', data: revenueData.map(r => r.revenue), backgroundColor: '#facc15', borderColor: '#000', borderWidth: 2 }] }} options={{ responsive: true, maintainAspectRatio: false }} />
+                <Bar data={{ labels: revenueData.map(r => new Date(r.date).toLocaleDateString('vi-VN')), datasets: [{ label: 'Doanh thu (VNĐ)', data: revenueData.map(r => r.revenue), backgroundColor: '#facc15', borderColor: '#000', borderWidth: 2 }] }} options={{ responsive: true, maintainAspectRatio: false }} />
               </div>
             </div>
             <div className="admin-table-box">

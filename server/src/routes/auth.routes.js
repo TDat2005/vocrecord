@@ -61,46 +61,8 @@ router.post('/login', loginLimiter, async (req, res, next) => {
     }
 });
 
-// POST /register (Legacy)
-router.post('/register', async (req, res, next) => {
-    let connection;
-    try {
-        const { username, password, fullname, email } = req.body;
-
-        if (!username || !password) {
-            return res.json({ success: false, message: 'Thiếu username hoặc password' });
-        }
-
-        const existingUser = await TaiKhoanModel.findByUsername(username);
-        if (existingUser) {
-            return res.json({ success: false, message: 'Lỗi: Tên đăng nhập đã tồn tại.' });
-        }
-        if (email) {
-            const existingKhachHang = await KhachHangModel.findByEmail(email);
-            if (existingKhachHang) {
-                return res.json({ success: false, message: 'Lỗi: Email đã được sử dụng.' });
-            }
-        }
-
-        connection = await pool.getConnection();
-        await connection.beginTransaction();
-
-        const hashedPassword = await bcrypt.hash(password, 10);
-        const maTK = await TaiKhoanModel.create(username, hashedPassword, 'khachhang', connection);
-        await KhachHangModel.create(fullname ? fullname : username, email || null, maTK, null, null, connection);
-        await connection.commit();
-        
-        return res.json({ success: true, message: 'Đăng ký thành công!' });
-    } catch (error) {
-        if (connection) {
-            try { await connection.rollback(); } catch (e) { console.error('Rollback error:', e); }
-        }
-        console.error('Lỗi register legacy:', error);
-        return res.json({ success: false, message: 'Lỗi: User hoặc Email đã tồn tại.' });
-    } finally {
-        if (connection) connection.release();
-    }
-});
+// POST /register (cũ, không xác thực OTP) đã được gỡ bỏ:
+// đăng ký bắt buộc đi qua /send-register-otp -> /verify-register-otp (UC01).
 
 // POST /send-register-otp
 router.post('/send-register-otp', otpLimiter, async (req, res, next) => {

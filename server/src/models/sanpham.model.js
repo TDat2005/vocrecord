@@ -2,7 +2,7 @@ const pool = require('../config/database');
 
 class SanPhamModel {
     static async getAll(category = null, search = null, limit = 100, offset = 0) {
-        let query = "SELECT sp.MaSP as id, sp.TenSP as title, sp.NgheSi as artist, COALESCE(dm.TenDM, sp.TheLoai) as genre, COALESCE(dm.TenDM, sp.TheLoai) as category, sp.TheLoaiNhac as music_genre, sp.GiaBan as price, sp.SoLuongTon as stock, sp.MoTa as description, sp.HinhAnh as image, sp.DinhDang as format, sp.TinhTrangDia as `condition`, sp.QuyCach as package_info, sp.Tracklist as tracklist, sp.NamPhatHanh as year, sp.TinhTrang as status FROM SanPham sp LEFT JOIN DanhMuc dm ON sp.MaDM = dm.MaDM WHERE 1=1";
+        let query = "SELECT sp.MaSP as id, sp.TenSP as title, sp.NgheSi as artist, COALESCE(dm.TenDM, sp.TheLoai) as genre, COALESCE(dm.TenDM, sp.TheLoai) as category, sp.TheLoaiNhac as music_genre, sp.GiaBan as price, sp.SoLuongTon as stock, sp.MoTa as description, sp.HinhAnh as image, sp.DinhDang as format, sp.TinhTrangDia as `condition`, sp.QuyCach as package_info, sp.Tracklist as tracklist, sp.NamPhatHanh as year, sp.TinhTrang as status FROM SanPham sp LEFT JOIN DanhMuc dm ON sp.MaDM = dm.MaDM WHERE sp.TinhTrang <> 'ngungkinhdoanh'";
         const params = [];
 
         if (category) {
@@ -44,8 +44,13 @@ class SanPhamModel {
         return result.affectedRows > 0;
     }
 
+    // Xóa mềm: không DELETE vì ChiTietDonHang/ChiTietPhieuNhap/YeuCauTraHangChiTiet tham chiếu SanPham.
+    // Chuyển sang "ngừng kinh doanh" để giữ nguyên lịch sử đơn hàng, nhập kho, trả hàng.
     static async delete(id) {
-        const [result] = await pool.execute("DELETE FROM SanPham WHERE MaSP = ?", [id]);
+        const [result] = await pool.execute(
+            "UPDATE SanPham SET TinhTrang = 'ngungkinhdoanh' WHERE MaSP = ?",
+            [id]
+        );
         return result.affectedRows > 0;
     }
 

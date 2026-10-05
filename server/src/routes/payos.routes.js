@@ -41,8 +41,10 @@ router.post('/webhook', async (req, res, next) => {
                 const maDH = thanhToan.MaDH;
                 if (webhookData.code === '00') {
                     if (thanhToan.TrangThaiTT !== 'dathanhtoan') {
+                        // Thanh toán xong chỉ là "đã xác nhận"; còn phải chuẩn bị hàng và tạo vận đơn GHN
+                        // trước khi sang "đang giao" (đồng bộ với nhánh kiểm tra trạng thái trong order.routes.js).
                         await connection.query("UPDATE ThanhToan SET TrangThaiTT = 'dathanhtoan', NgayTT = NOW() WHERE MaDH = ?", [maDH]);
-                        await connection.query("UPDATE DonHang SET TrangThai = 'danggiaohang' WHERE MaDH = ? AND TrangThai <> 'hoanthanh'", [maDH]);
+                        await connection.query("UPDATE DonHang SET TrangThai = 'daxacnhan' WHERE MaDH = ? AND TrangThai = 'choxacnhan'", [maDH]);
                     }
                 } else if (!['thatbai', 'dahuy', 'dathanhtoan'].includes(thanhToan.TrangThaiTT)) {
                     // The payment webhook can be retried. Re-stock only on the first failure.
