@@ -1,0 +1,87 @@
+name: Deploy production
+
+# Chạy tay (tab Actions -> Deploy production -> Run workflow) khi đã có VPS.
+# Cần cấu hình trong Settings -> Secrets and variables -> Actions:
+#   SSH_HOST, SSH_USER, SSH_PRIVATE_KEY (bắt buộc), SSH_PORT (tùy chọn, mặc định 22)
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Tag image cần deploy (latest hoặc mã commit)"
+        required: true
+        default: latest
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: https://ngtiendat.id.vn
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Kiểm tra secrets
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        run: |
+          missing=0
+          for v in SSH_HOST SSH_USER SSH_PRIVATE_KEY; do
+            if [ -z "${!v}" ]; then echo "::error::Chưa cấu hình secret $v"; missing=1; fi
+          done
+          exit $missing
+
+      - name: Gom file triển khai
+        run: |
+          mkdir -p bundle/database bundle/deploy
+          cp docker-compose.prod.yml bundle/
+          cp deploy/Caddyfile bundle/deploy/
+          cp database/0*_*.sql database/migrate_*.sql bundle/database/
+
+      - name: Chép file lên VPS
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT || 22 }}
+          source: "bundle/*"
+          target: "~/vocrecord"
+          strip_components: 1
+
+      - name: Kéo image mới và khởi động lại
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          IMAGE_TAG: ${{ inputs.image_tag }}
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT || 22 }}
+          envs: IMAGE_TAG,GHCR_USER,GHCR_TOKEN
+          script_stop: true
+          script: |
+            cd ~/vocrecord
+            test -f .env || { echo "Thiếu ~/vocrecord/.env (xem deploy/compose.env.example)"; exit 1; }
+            test -f deploy/server.env || { echo "Thiếu ~/vocrecord/deploy/server.env (xem deploy/server.env.example)"; exit 1; }
+            echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
+            export IMAGE_TAG
+            docker compose -f docker-compose.prod.yml pull
+            docker compose -f docker-compose.prod.yml up -d --remove-orphans
+            docker image prune -f
+            for i in $(seq 1 30); do
+              docker compose -f docker-compose.prod.yml exec -T api wget -qO- http://localhost:3000/health && exit 0
+              sleep 2
+            done
+            docker compose -f docker-compose.prod.yml logs --tail=80 api
+            exit 1

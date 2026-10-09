@@ -1,0 +1,164 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "fix/**", "feat/**"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend – kiểm thử API
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -proot"
+          --health-interval=5s --health-timeout=5s --health-retries=20
+    env:
+      MYSQL: mysql -h127.0.0.1 -uroot -proot
+      DB_HOST: 127.0.0.1
+      DB_PORT: 3306
+      DB_USER: root
+      DB_PASS: root
+      DB_NAME: clonevocrecord
+      PORT: 3000
+      JWT_SECRET: ci-only-secret-0123456789abcdef0123456789
+      CORS_ORIGINS: http://localhost
+      SMTP_HOST: 127.0.0.1   # SMTP giả: gửi mail thất bại ngay, không chặn luồng đặt hàng
+      SMTP_PORT: 1
+      RETURN_WINDOW_DAYS: 7
+      TEST_PASS: Ci@123456
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+
+      - name: Cài thư viện backend
+        working-directory: server
+        run: npm ci
+
+      - name: Kiểm tra cú pháp
+        working-directory: server
+        run: for f in $(find src tests -name '*.js'); do node --check "$f"; done
+
+      - name: Dựng CSDL từ script migration
+        run: bash deploy/init-db.sh
+
+      - name: Tạo tài khoản kiểm thử
+        run: bash deploy/ci-seed-accounts.sh
+
+      - name: Chạy API
+        working-directory: server
+        run: |
+          nohup node src/index.js > api.log 2>&1 &
+          for i in $(seq 1 30); do curl -sf http://localhost:3000/health && exit 0; sleep 1; done
+          cat api.log; exit 1
+
+      - name: Kiểm thử API (tests/api.test.js)
+        working-directory: server
+        env:
+          CUSTOMER_USER: ci_khach
+          CUSTOMER_PASS: ${{ env.TEST_PASS }}
+          STAFF_USER: ci_nhanvien
+          STAFF_PASS: ${{ env.TEST_PASS }}
+          ADMIN_USER: ci_admin
+          ADMIN_PASS: ${{ env.TEST_PASS }}
+        run: node tests/api.test.js
+
+      - name: Log API khi lỗi
+        if: failure()
+        run: cat server/api.log || true
+
+      - name: Lưu kết quả kiểm thử
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: api-test-result
+          path: server/tests/api-test-result.json
+          if-no-files-found: ignore
+
+  frontend:
+    name: Frontend – build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: DiaNhac/package-lock.json
+
+      - name: Cài thư viện và build
+        working-directory: DiaNhac
+        run: |
+          npm ci
+          npm run build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: DiaNhac/dist
+          retention-days: 7
+
+  docker:
+    name: Đóng gói Docker image (GHCR)
+    needs: [backend, frontend]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Tên image (chữ thường)
+        id: img
+        run: echo "owner=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build & push API
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: server/Dockerfile
+          push: true
+          tags: |
+            ghcr.io/${{ steps.img.outputs.owner }}/vocrecord-api:latest
+            ghcr.io/${{ steps.img.outputs.owner }}/vocrecord-api:${{ github.sha }}
+          cache-from: type=gha,scope=api
+          cache-to: type=gha,mode=max,scope=api
+
+      - name: Build & push Web
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: DiaNhac/Dockerfile
+          push: true
+          tags: |
+            ghcr.io/${{ steps.img.outputs.owner }}/vocrecord-web:latest
+            ghcr.io/${{ steps.img.outputs.owner }}/vocrecord-web:${{ github.sha }}
+          cache-from: type=gha,scope=web
+          cache-to: type=gha,mode=max,scope=web
