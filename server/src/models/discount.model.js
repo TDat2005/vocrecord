@@ -32,7 +32,8 @@ class DiscountModel {
         let amount = ['percent', 'phantram', 'percentage'].includes(discountType)
             ? total * Number(discount.GiaTri || 0) / 100
             : Number(discount.GiaTri || 0);
-        return Math.min(Math.max(amount, 0), total);
+        // Làm tròn về đồng: PayOS chỉ nhận số tiền nguyên, giảm % có thể ra số lẻ.
+        return Math.round(Math.min(Math.max(amount, 0), total));
     }
 
     static async create(code, loaiGiamGia, giaTri, donHangToiThieu, soLuong, ngayHetHan) {

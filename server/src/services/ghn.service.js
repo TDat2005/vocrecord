@@ -9,175 +9,43 @@ const numberEnv = (name, fallback) => {
     return Number.isFinite(value) ? value : fallback;
 };
 
-// Full catalog of 63 provinces in Vietnam for robust staging fallback
+// Danh sách 34 tỉnh/thành sau sắp xếp hành chính 2025 (lấy từ GHN), dùng khi không gọi được API GHN.
 const FALLBACK_PROVINCES = [
-    { _id: '201', name: 'TP Hồ Chí Minh' },
-    { _id: '202', name: 'Hà Nội' },
-    { _id: '203', name: 'Đà Nẵng' },
-    { _id: '204', name: 'Bình Dương' },
-    { _id: '205', name: 'Đồng Nai' },
-    { _id: '206', name: 'Hải Phòng' },
-    { _id: '207', name: 'Cần Thơ' },
-    { _id: '208', name: 'An Giang' },
-    { _id: '209', name: 'Bà Rịa - Vũng Tàu' },
-    { _id: '210', name: 'Bắc Giang' },
-    { _id: '211', name: 'Bắc Kạn' },
-    { _id: '212', name: 'Bạc Liêu' },
-    { _id: '213', name: 'Bắc Ninh' },
-    { _id: '214', name: 'Bến Tre' },
-    { _id: '215', name: 'Bình Định' },
-    { _id: '216', name: 'Bình Phước' },
-    { _id: '217', name: 'Bình Thuận' },
-    { _id: '218', name: 'Cà Mau' },
-    { _id: '219', name: 'Cao Bằng' },
-    { _id: '220', name: 'Đắk Lắk' },
-    { _id: '221', name: 'Đắk Nông' },
-    { _id: '222', name: 'Điện Biên' },
-    { _id: '223', name: 'Đồng Tháp' },
-    { _id: '224', name: 'Gia Lai' },
-    { _id: '225', name: 'Hà Giang' },
-    { _id: '226', name: 'Hà Nam' },
-    { _id: '227', name: 'Hà Tĩnh' },
-    { _id: '228', name: 'Hải Dương' },
-    { _id: '229', name: 'Hậu Giang' },
-    { _id: '230', name: 'Hòa Bình' },
-    { _id: '231', name: 'Hưng Yên' },
-    { _id: '232', name: 'Khánh Hòa' },
-    { _id: '233', name: 'Kiên Giang' },
-    { _id: '234', name: 'Kon Tum' },
-    { _id: '235', name: 'Lai Châu' },
-    { _id: '236', name: 'Lâm Đồng' },
-    { _id: '237', name: 'Lạng Sơn' },
-    { _id: '238', name: 'Lào Cai' },
-    { _id: '239', name: 'Long An' },
-    { _id: '240', name: 'Nam Định' },
-    { _id: '241', name: 'Nghệ An' },
-    { _id: '242', name: 'Ninh Bình' },
-    { _id: '243', name: 'Ninh Thuận' },
-    { _id: '244', name: 'Phú Thọ' },
-    { _id: '245', name: 'Phú Yên' },
-    { _id: '246', name: 'Quảng Bình' },
-    { _id: '247', name: 'Quảng Nam' },
-    { _id: '248', name: 'Quảng Ngãi' },
-    { _id: '249', name: 'Quảng Ninh' },
-    { _id: '250', name: 'Quảng Trị' },
-    { _id: '251', name: 'Sóc Trăng' },
-    { _id: '252', name: 'Sơn La' },
-    { _id: '253', name: 'Tây Ninh' },
-    { _id: '254', name: 'Thái Bình' },
-    { _id: '255', name: 'Thái Nguyên' },
-    { _id: '256', name: 'Thanh Hóa' },
-    { _id: '257', name: 'Thừa Thiên Huế' },
-    { _id: '258', name: 'Tiền Giang' },
-    { _id: '259', name: 'Trà Vinh' },
-    { _id: '260', name: 'Tuyên Quang' },
-    { _id: '261', name: 'Vĩnh Long' },
-    { _id: '262', name: 'Vĩnh Phúc' },
-    { _id: '263', name: 'Yên Bái' }
+    { _id: '1000013', name: 'An Giang' },
+    { _id: '1000021', name: 'Bắc Ninh' },
+    { _id: '1000022', name: 'Cà Mau' },
+    { _id: '1000032', name: 'Cao Bằng' },
+    { _id: '1000005', name: 'Cần Thơ' },
+    { _id: '1000003', name: 'Đà Nẵng' },
+    { _id: '1000010', name: 'Đắk Lắk' },
+    { _id: '1000026', name: 'Điện Biên' },
+    { _id: '1000006', name: 'Đồng Nai' },
+    { _id: '1000012', name: 'Đồng Tháp' },
+    { _id: '1000007', name: 'Gia Lai' },
+    { _id: '1000000', name: 'Hà Nội' },
+    { _id: '1000029', name: 'Hà Tĩnh' },
+    { _id: '1000004', name: 'Hải Phòng' },
+    { _id: '1000001', name: 'Hồ Chí Minh' },
+    { _id: '1000002', name: 'Huế' },
+    { _id: '1000023', name: 'Hưng Yên' },
+    { _id: '1000008', name: 'Khánh Hòa' },
+    { _id: '1000025', name: 'Lai Châu' },
+    { _id: '1000033', name: 'Lạng Sơn' },
+    { _id: '1000024', name: 'Lào Cai' },
+    { _id: '1000009', name: 'Lâm Đồng' },
+    { _id: '1000031', name: 'Nghệ An' },
+    { _id: '1000016', name: 'Ninh Bình' },
+    { _id: '1000015', name: 'Phú Thọ' },
+    { _id: '1000019', name: 'Quảng Ngãi' },
+    { _id: '1000028', name: 'Quảng Ninh' },
+    { _id: '1000017', name: 'Quảng Trị' },
+    { _id: '1000027', name: 'Sơn La' },
+    { _id: '1000018', name: 'Tây Ninh' },
+    { _id: '1000020', name: 'Thái Nguyên' },
+    { _id: '1000030', name: 'Thanh Hóa' },
+    { _id: '1000014', name: 'Tuyên Quang' },
+    { _id: '1000011', name: 'Vĩnh Long' }
 ];
-
-const PROVINCE_SPECIFIC_WARDS = {
-    '201': [ // TP Hồ Chí Minh
-        'Phường Bến Nghé (Quận 1)',
-        'Phường Bến Thành (Quận 1)',
-        'Phường Đa Kao (Quận 1)',
-        'Phường Tân Định (Quận 1)',
-        'Phường Võ Thị Sáu (Quận 3)',
-        'Phường Thảo Điền (TP Thủ Đức)',
-        'Phường An Phú (TP Thủ Đức)',
-        'Phường Hiệp Bình Chánh (TP Thủ Đức)',
-        'Phường 1 (Quận 5)',
-        'Phường 2 (Quận 5)',
-        'Phường 5 (Quận 5)',
-        'Phường Tân Phong (Quận 7)',
-        'Phường Tân Phú (Quận 7)',
-        'Phường 2 (Quận Tân Bình)',
-        'Phường 15 (Quận Bình Thạnh)',
-        'Phường 1 (Quận Phú Nhuận)',
-        'Phường Linh Chiểu (TP Thủ Đức)'
-    ],
-    '202': [ // Hà Nội
-        'Phường Tràng Tiền (Quận Hoàn Kiếm)',
-        'Phường Hàng Bạc (Quận Hoàn Kiếm)',
-        'Phường Cửa Nam (Quận Hoàn Kiếm)',
-        'Phường Điện Biên (Ba Đình)',
-        'Phường Đội Cấn (Ba Đình)',
-        'Phường Kim Mã (Ba Đình)',
-        'Phường Ô Chợ Dừa (Đống Đa)',
-        'Phường Láng Hạ (Đống Đa)',
-        'Phường Dịch Vọng (Cầu Giấy)',
-        'Phường Nghĩa Tân (Cầu Giấy)',
-        'Phường Yên Hòa (Cầu Giấy)',
-        'Phường Mỹ Đình 1 (Nam Từ Liêm)',
-        'Phường Mỹ Đình 2 (Nam Từ Liêm)',
-        'Phường Mễ Trì (Nam Từ Liêm)',
-        'Phường Khương Mai (Thanh Xuân)',
-        'Phường Thanh Xuân Nam (Thanh Xuân)',
-        'Phường Thanh Xuân Bắc (Thanh Xuân)',
-        'Phường Thanh Xuân Trung (Thanh Xuân)',
-        'Xã Tân Triều (Thanh Trì)'
-    ],
-    '203': [ // Đà Nẵng
-        'Phường Hải Châu 1 (Hải Châu)',
-        'Phường Hải Châu 2 (Hải Châu)',
-        'Phường Thạch Thang (Hải Châu)',
-        'Phường An Hải Bắc (Sơn Trà)',
-        'Phường Phước Mỹ (Sơn Trà)',
-        'Phường Mỹ An (Ngũ Hành Sơn)',
-        'Phường Khuê Trung (Cẩm Lệ)',
-        'Phường Hòa Cường Bắc (Hải Châu)'
-    ],
-    '204': [ // Bình Dương
-        'Phường Phú Cường (Thủ Dầu Một)',
-        'Phường Hiệp Thành (Thủ Dầu Một)',
-        'Phường Phú Hòa (Thủ Dầu Một)',
-        'Phường Dĩ An (TP Dĩ An)',
-        'Phường An Phú (TP Thuận An)',
-        'Phường Lái Thiêu (TP Thuận An)'
-    ],
-    '205': [ // Đồng Nai
-        'Phường Quyết Thắng (TP Biên Hòa)',
-        'Phường Trung Dũng (TP Biên Hòa)',
-        'Phường Thống Nhất (TP Biên Hòa)',
-        'Phường Tân Phong (TP Biên Hòa)',
-        'Phường Long Bình (TP Biên Hòa)'
-    ],
-    '206': [ // Hải Phòng
-        'Phường Hoàng Văn Thụ (Hồng Bàng)',
-        'Phường Minh Khai (Hồng Bàng)',
-        'Phường Cầu Đất (Ngô Quyền)',
-        'Phường Lạch Tray (Ngô Quyền)',
-        'Phường Trần Nguyên Hãn (Lê Chân)'
-    ],
-    '207': [ // Cần Thơ
-        'Phường Tân An (Ninh Kiều)',
-        'Phường An Cư (Ninh Kiều)',
-        'Phường An Phú (Ninh Kiều)',
-        'Phường Xuân Khánh (Ninh Kiều)',
-        'Phường Hưng Phú (Cái Răng)'
-    ]
-};
-
-const getFallbackWards = (provinceId) => {
-    const list = PROVINCE_SPECIFIC_WARDS[String(provinceId)] || [
-        'Phường 1',
-        'Phường 2',
-        'Phường 3',
-        'Phường 4',
-        'Phường 5',
-        'Phường Trung Tâm',
-        'Xã Quyết Thắng',
-        'Xã Hòa Bình',
-        'Xã Tân Hưng',
-        'Xã Phú Thạnh',
-        'Xã An Khánh',
-        'Xã Đồng Tâm'
-    ];
-    return list.map((name, index) => ({
-        _id: `${provinceId}${String(index + 1).padStart(2, '0')}`,
-        name
-    }));
-};
 
 class GHNService {
     static isConfigured() {
@@ -192,28 +60,38 @@ class GHNService {
         }
     }
 
-    static async request(method, path, { data, params } = {}) {
+    static async request(method, path, { data, params, withShop = true } = {}) {
         this.requireConfigured();
-        const response = await axios({
-            method,
-            url: `${GHN_BASE_URL}${path}`,
-            data,
-            params,
-            timeout: numberEnv('GHN_TIMEOUT_MS', 15000),
-            headers: {
-                'Content-Type': 'application/json',
-                Token: process.env.GHN_TOKEN,
-                ShopId: String(process.env.GHN_SHOP_ID)
+        const headers = { 'Content-Type': 'application/json', Token: process.env.GHN_TOKEN };
+        // API danh mục (tỉnh/phường) không cần ShopId; gửi ShopId sai thì GHN báo "Lỗi lấy thông tin shop".
+        if (withShop) headers.ShopId = String(process.env.GHN_SHOP_ID);
+        try {
+            const response = await axios({
+                method,
+                url: `${GHN_BASE_URL}${path}`,
+                data,
+                params,
+                timeout: numberEnv('GHN_TIMEOUT_MS', 15000),
+                headers
+            });
+            const body = response.data || {};
+            if (body.code !== 200) {
+                const error = new Error(body.message || 'GHN trả về lỗi không xác định');
+                error.status = 502;
+                error.ghn = body;
+                throw error;
             }
-        });
-        const body = response.data || {};
-        if (body.code !== 200) {
-            const error = new Error(body.message || 'GHN trả về lỗi không xác định');
-            error.status = response.status >= 400 ? response.status : 502;
-            error.ghn = body;
-            throw error;
+            return body.data;
+        } catch (err) {
+            // Lấy thông báo lỗi thật của GHN (vd: "ward not found", "From address conflict") thay vì "status code 400".
+            if (err.response?.data?.message) {
+                const error = new Error(`GHN: ${err.response.data.message}`);
+                error.status = 502;
+                error.ghn = err.response.data;
+                throw error;
+            }
+            throw err;
         }
-        return body.data;
     }
 
     static async calculateFee(payload) {
@@ -239,12 +117,15 @@ class GHNService {
             return this.request('POST', '/v2/shipping-order/create', { data: payload });
         }
 
-        // Staging / Free sandbox mode
+        // Môi trường thử (staging): gọi GHN dev, lỗi thì tạo mã giả lập để vẫn demo được luồng giao hàng.
+        // Lý do lỗi được trả kèm (ghn_error) để trang quản trị hiển thị, không bị che mất như trước.
+        let ghnError = this.isConfigured() ? null : 'GHN chưa được cấu hình';
         try {
             if (this.isConfigured()) {
                 return await this.request('POST', '/v2/shipping-order/create', { data: payload });
             }
         } catch (err) {
+            ghnError = err.message;
             console.warn('GHN dev createOrder API returned error, creating staging simulation:', err.message);
         }
 
@@ -258,7 +139,8 @@ class GHNService {
             total_fee: 30000,
             expected_delivery_time: deliveryDate.toISOString(),
             status: 'ready_to_pick',
-            is_staging: true
+            is_staging: true,
+            ghn_error: ghnError
         };
     }
 
@@ -316,8 +198,10 @@ class GHNService {
     static async getProvinces() {
         if (this.isConfigured()) {
             try {
-                const data = await this.request('GET', '/v3/master-data/province/all', { params: { offset: 0, limit: 200 } });
-                if (Array.isArray(data) && data.length > 0) return data;
+                const data = await this.request('GET', '/v3/master-data/province/all', { params: { offset: 0, limit: 200 }, withShop: false });
+                if (Array.isArray(data) && data.length > 0) {
+                    return data.map(({ _id, name }) => ({ _id, name })).sort((a, b) => a.name.localeCompare(b.name, 'vi'));
+                }
             } catch (err) {
                 console.warn('GHN getProvinces API failed, using staging fallback:', err.message);
             }
@@ -328,15 +212,28 @@ class GHNService {
     static async getWards(provinceId) {
         if (this.isConfigured()) {
             try {
-                const data = await this.request('GET', '/v3/master-data/ward/all-by-province-id', {
-                    params: { province_id: provinceId, offset: 0, limit: 200 }
-                });
-                if (Array.isArray(data) && data.length > 0) return data;
+                // GHN trả tối đa 200 phường mỗi lần (Hà Nội có hơn 120): lấy hết các trang.
+                let wards = [];
+                for (let offset = 0; offset < 2000; offset += 200) {
+                    const page = await this.request('GET', '/v3/master-data/ward/all-by-province-id', {
+                        params: { province_id: provinceId, offset, limit: 200 },
+                        withShop: false
+                    });
+                    if (!Array.isArray(page)) break;
+                    wards = wards.concat(page);
+                    if (page.length < 200) break;
+                }
+                if (wards.length > 0) {
+                    return wards
+                        .map(({ _id, name }) => ({ _id, name }))
+                        .sort((a, b) => a.name.localeCompare(b.name, 'vi'));
+                }
             } catch (err) {
                 console.warn(`GHN getWards(${provinceId}) API failed, using staging fallback:`, err.message);
             }
         }
-        return getFallbackWards(provinceId);
+        // Không có danh sách phường: trả rỗng để giao diện cho khách tự nhập tên phường/xã.
+        return [];
     }
 
     static getDefaultDimensions() {
@@ -349,14 +246,18 @@ class GHNService {
     }
 
     static buildOrderPayload(order, items, shipping = {}) {
-        const dimensions = {
-            weight: Number(order.CanNang || shipping.weight || this.getDefaultDimensions().weight),
-            length: Number(order.ChieuDai || shipping.length || this.getDefaultDimensions().length),
-            width: Number(order.ChieuRong || shipping.width || this.getDefaultDimensions().width),
-            height: Number(order.ChieuCao || shipping.height || this.getDefaultDimensions().height)
-        };
-        const serviceTypeId = dimensions.weight >= 20000 || items.length > 1 ? 5 : 2;
         const itemDimensions = this.getDefaultDimensions();
+        // Khối lượng tính theo tổng số món (mặc định ~600g/món đã đóng gói), không cố định 600g cho cả đơn.
+        const totalQuantity = items.reduce((sum, item) => sum + Number(item.SoLuong || 1), 0) || 1;
+        const dimensions = {
+            weight: Number(order.CanNang || shipping.weight || itemDimensions.weight * totalQuantity),
+            length: Number(order.ChieuDai || shipping.length || itemDimensions.length),
+            width: Number(order.ChieuRong || shipping.width || itemDimensions.width),
+            height: Number(order.ChieuCao || shipping.height || itemDimensions.height * Math.min(totalQuantity, 5))
+        };
+        // service_type_id 2 = hàng nhẹ (thương mại điện tử), 5 = hàng nặng (từ 20kg).
+        // Trước đây đơn có từ 2 sản phẩm bị chọn nhầm gói hàng nặng.
+        const serviceTypeId = dimensions.weight >= 20000 ? 5 : 2;
         return {
             payment_type_id: Number(process.env.GHN_PAYMENT_TYPE_ID || 2),
             required_note: process.env.GHN_REQUIRED_NOTE || 'CHOXEMHANGKHONGTHU',

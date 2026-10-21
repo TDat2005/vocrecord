@@ -27,7 +27,8 @@ class DonHangModel {
 
     static async getByCustomer(customerId, limit = 100, offset = 0) {
         const [rows] = await pool.execute(
-            "SELECT * FROM DonHang WHERE MaKH = ? ORDER BY NgayDat DESC LIMIT ? OFFSET ?",
+            // Kèm trạng thái thanh toán: trang Tài khoản cần biết đơn PayOS đã trả tiền để hỏi thông tin hoàn tiền khi hủy.
+            "SELECT dh.*, tt.TrangThaiTT FROM DonHang dh LEFT JOIN ThanhToan tt ON dh.MaDH = tt.MaDH WHERE dh.MaKH = ? ORDER BY dh.NgayDat DESC LIMIT ? OFFSET ?",
             [customerId, limit, offset]
         );
         return rows;
@@ -98,6 +99,31 @@ class DonHangModel {
             [trangThai, maDH]
         );
         return result.affectedRows > 0;
+    }
+
+    /**
+     * Trả lại tài nguyên khi một đơn bị hủy: cộng lại tồn kho và trả lại 1 lượt dùng mã giảm giá.
+     * Chỉ gọi đúng một lần cho mỗi đơn, ngay sau câu UPDATE chuyển đơn sang 'dahuy' có affectedRows > 0.
+     */
+    static async releaseCancelledOrder(orderId, connection = pool) {
+        const items = await this.getOrderItems(orderId, connection);
+        for (const item of items) {
+            await connection.execute('UPDATE SanPham SET SoLuongTon = SoLuongTon + ? WHERE MaSP = ?', [item.SoLuong, item.MaSP]);
+        }
+        await connection.execute(
+            `UPDATE MaGiamGia mg JOIN DonHang dh ON dh.CodeGiamGia = mg.Code
+             SET mg.DaDung = GREATEST(mg.DaDung - 1, 0)
+             WHERE dh.MaDH = ? AND dh.SoTienGiam > 0`,
+            [orderId]
+        );
+    }
+
+    /** Đơn COD giao thành công nghĩa là shipper đã thu tiền: ghi nhận thanh toán. */
+    static async markCodPaid(orderId, connection = pool) {
+        await connection.execute(
+            "UPDATE ThanhToan SET TrangThaiTT = 'dathanhtoan', NgayTT = NOW() WHERE MaDH = ? AND HinhThuc = 'cod' AND TrangThaiTT <> 'dathanhtoan'",
+            [orderId]
+        );
     }
 
     static async getPaymentByOrderId(orderId) {

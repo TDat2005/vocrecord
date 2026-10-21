@@ -15,7 +15,10 @@ class PayOSService {
             amount: amount,
             description: description.substring(0, 25), // PayOS allows max 25 chars for description
             returnUrl: finalReturnUrl,
-            cancelUrl: finalCancelUrl
+            cancelUrl: finalCancelUrl,
+            // Hết hạn cùng lúc server tự hủy đơn (10 phút) để khách không thể trả tiền cho đơn đã hủy.
+            // expiredAt không nằm trong chuỗi ký signature của PayOS.
+            expiredAt: Math.floor(Date.now() / 1000) + 10 * 60
         };
 
         // Create signature (alphabetical order)

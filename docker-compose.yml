@@ -6,6 +6,8 @@ services:
       dockerfile: server/Dockerfile
     env_file:
       - server/.env
+      - path: .env
+        required: false
     depends_on:
       db:
         condition: service_healthy

@@ -189,6 +189,95 @@ const ship = { address: '12 Thái Hà, Đống Đa, Hà Nội', nguoiNhan: 'Khá
     return [r.status === 409, r.data.message];
   });
 
+  // ---- Thanh toán, mã giảm giá, hồ sơ ----
+  const orderInfo = async (id) => (await call('GET', `/orders/${id}`, null, A)).data.data.info;
+  const usageOf = async (code) => Number((await call('GET', '/discounts', null, A)).data.data.find((d) => d.Code === code).DaDung);
+  await test('T29', 'Đơn COD hoàn thành được ghi nhận đã thanh toán', 'TrangThaiTT = dathanhtoan', async () => {
+    const info = await orderInfo(o3);
+    return [info.TrangThai === 'hoanthanh' && info.TrangThaiTT === 'dathanhtoan', `${info.TrangThai} / ${info.TrangThaiTT}`];
+  });
+  await test('T30', 'Hủy đơn có mã giảm giá trả lại lượt dùng mã', 'DaDung +1 rồi -1', async () => {
+    const u0 = await usageOf('WELCOME10');
+    const id = (await call('POST', '/orders', { ...ship, discountCode: 'WELCOME10', items: [{ id: P2, qty: 1 }] }, K)).data.order_id;
+    const u1 = await usageOf('WELCOME10');
+    await call('PUT', `/orders/${id}/cancel`, {}, K);
+    const u2 = await usageOf('WELCOME10');
+    return [u1 === u0 + 1 && u2 === u0, `Lượt dùng ${u0} → ${u1} → ${u2}`];
+  });
+  await test('T31', 'Danh sách đơn của khách có trạng thái thanh toán', 'Có TrangThaiTT', async () => {
+    const r = await call('GET', '/orders', null, K);
+    return [r.data.data.length > 0 && r.data.data.every((o) => 'TrangThaiTT' in o), `${r.data.data.length} đơn`];
+  });
+  await test('T32', 'Xóa sản phẩm khỏi danh sách yêu thích', 'Không còn trong danh sách', async () => {
+    const r = await call('DELETE', '/wishlist', { product_id: P2 }, K);
+    const list = (await call('GET', '/wishlist', null, K)).data.data;
+    return [r.data.success && !list.some((item) => item.id === P2), r.data.message];
+  });
+  await test('T33', 'Danh sách khách hàng trả về tên và email', 'Có id, name, email', async () => {
+    const c = (await call('GET', '/admin/customers', null, N)).data.data[0];
+    return [Boolean(c && c.id && c.name && c.email), c ? `${c.name} <${c.email}>` : 'Trống'];
+  });
+  await test('T34', 'Cập nhật hồ sơ không xóa địa chỉ đã lưu', 'Địa chỉ giữ nguyên', async () => {
+    await call('PUT', '/account/profile', { fullName: 'Khách CI', phone: '0900000001', address: '1 Phố Huế, Hà Nội' }, K);
+    await call('PUT', '/account/profile', { fullName: 'Khách CI', phone: '0900000001' }, K);
+    const address = (await call('GET', '/account/profile', null, K)).data.data.address;
+    return [address === '1 Phố Huế, Hà Nội', `Địa chỉ: ${address}`];
+  });
+  await test('T35', 'Sửa mã giảm giá để trống ngày hết hạn', 'Lưu được', async () => {
+    const code = 'CI' + Date.now().toString().slice(-6);
+    await call('POST', '/discounts', { Code: code, LoaiGiamGia: 'fixed', GiaTri: 10000, DonHangToiThieu: 0, SoLuong: 5, NgayHetHan: '' }, A);
+    const created = (await call('GET', '/discounts', null, A)).data.data.find((d) => d.Code === code);
+    const r = await call('PUT', `/discounts/${created.MaGG}`, { Code: code, LoaiGiamGia: 'fixed', GiaTri: 20000, DonHangToiThieu: 0, SoLuong: 5, NgayHetHan: '' }, A);
+    await call('DELETE', `/discounts/${created.MaGG}`, null, A);
+    return [r.data.success === true, r.data.message];
+  });
+
+  // ---- Vận chuyển GHN (chưa cấu hình GHN nên dùng mã giả lập) ----
+  const ghnWebhook = (code, status) => call('POST', '/shipping/webhook/ghn', { OrderCode: code, Status: status });
+  let shipped, shipCode;
+  await test('T36', 'Tạo vận đơn chuyển đơn sang "Đang chuẩn bị", giữ phí ship khách đã trả', 'dangchuanbihang, phí 30.000đ', async () => {
+    shipped = (await call('POST', '/orders', { ...ship, items: [{ id: P2, qty: 1 }] }, K)).data.order_id;
+    await call('PUT', `/orders/${shipped}/status`, { status: 'daxacnhan' }, N);
+    const r = await call('POST', `/shipping/orders/${shipped}/create`, {}, N);
+    shipCode = r.data.data?.order_code;
+    const info = await orderInfo(shipped);
+    return [r.data.success && info.TrangThai === 'dangchuanbihang' && Number(info.PhiVanChuyen) === 30000, `${shipCode} · ${info.TrangThai} · phí ${Number(info.PhiVanChuyen)}`];
+  });
+  await test('T37', 'Tạo vận đơn lần 2 cho cùng đơn', 'HTTP 409', async () => {
+    const r = await call('POST', `/shipping/orders/${shipped}/create`, {}, N);
+    return [r.status === 409, r.data.message];
+  });
+  await test('T38', 'GHN báo money_collect_delivering', 'Đang giao (chưa hoàn thành)', async () => {
+    await ghnWebhook(shipCode, 'money_collect_delivering');
+    const info = await orderInfo(shipped);
+    return [info.TrangThai === 'danggiaohang', info.TrangThai];
+  });
+  await test('T39', 'GHN báo delivered', 'Hoàn thành, COD đã thanh toán', async () => {
+    await ghnWebhook(shipCode, 'delivered');
+    const info = await orderInfo(shipped);
+    return [info.TrangThai === 'hoanthanh' && info.TrangThaiTT === 'dathanhtoan', `${info.TrangThai} / ${info.TrangThaiTT}`];
+  });
+  await test('T40', 'GHN gửi lại trạng thái cũ sau khi đã hoàn thành', 'Giữ nguyên hoàn thành', async () => {
+    await ghnWebhook(shipCode, 'ready_to_pick');
+    const info = await orderInfo(shipped);
+    return [info.TrangThai === 'hoanthanh', `${info.TrangThai} (GHN: ${info.GHNTrangThai})`];
+  });
+  await test('T41', 'GHN báo hủy vận đơn', 'Đã hủy, hoàn tồn kho', async () => {
+    const id = (await call('POST', '/orders', { ...ship, items: [{ id: P2, qty: 1 }] }, K)).data.order_id;
+    await call('PUT', `/orders/${id}/status`, { status: 'daxacnhan' }, N);
+    const code = (await call('POST', `/shipping/orders/${id}/create`, {}, N)).data.data.order_code;
+    const s0 = await stockOf(P2);
+    await ghnWebhook(code, 'cancel');
+    const s1 = await stockOf(P2);
+    const info = await orderInfo(id);
+    return [info.TrangThai === 'dahuy' && s1 === s0 + 1, `${info.TrangThai}, tồn kho ${s0} → ${s1}`];
+  });
+  await test('T42', 'Đăng nhập đúng nhiều lần liên tiếp', 'Không bị khóa 15 phút', async () => {
+    let token;
+    for (let i = 0; i < 12; i += 1) token = await login(ACC.customer);
+    return [Boolean(token), token ? 'Lần thứ 12 vẫn đăng nhập được' : 'Bị chặn'];
+  });
+
   const pass = results.filter((r) => r.ok).length;
   console.log(`\nKết quả: ${pass}/${results.length} ca đạt`);
   require('fs').writeFileSync(__dirname + '/api-test-result.json', JSON.stringify(results, null, 2));

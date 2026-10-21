@@ -36,9 +36,10 @@ class KhachHangModel {
 
     static async updateProfile(customerId, fullName, phone, address, connection = pool) {
         const db = connection || pool;
+        // address = undefined: giữ nguyên địa chỉ cũ (form hồ sơ chỉ gửi họ tên và số điện thoại).
         const [result] = await db.execute(
-            "UPDATE KhachHang SET HoTen = ?, SoDienThoai = ?, DiaChi = ? WHERE MaKH = ?",
-            [fullName, phone, address, customerId]
+            "UPDATE KhachHang SET HoTen = ?, SoDienThoai = ?, DiaChi = COALESCE(?, DiaChi) WHERE MaKH = ?",
+            [fullName, phone, address === undefined ? null : address, customerId]
         );
         return result.affectedRows > 0;
     }

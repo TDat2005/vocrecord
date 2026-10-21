@@ -43,25 +43,23 @@ router.post('/check', async (req, res, next) => {
             return res.json({ success: false, message: 'Mã đã hết lượt sử dụng' });
         }
 
-        // Kiem tra don hang toi thieu
-        if (cartTotal < discount.DonHangToiThieu) {
-            return res.json({ 
-                success: false, 
-                message: 'Đơn hàng chưa đạt giá trị tổi thiểu ' + discount.DonHangToiThieu.toLocaleString('vi-VN') + 'đ' 
+        // Kiem tra don hang toi thieu (cột DECIMAL được mysql2 trả về dạng chuỗi nên phải ép sang số)
+        const minimum = Number(discount.DonHangToiThieu) || 0;
+        if (cartTotal < minimum) {
+            return res.json({
+                success: false,
+                message: 'Đơn hàng chưa đạt giá trị tối thiểu ' + minimum.toLocaleString('vi-VN') + 'đ'
             });
         }
 
         // Tinh toan tien giam
-        let moneyDiscount = 0;
-        if (discount.LoaiGiamGia === 'percent') {
-            moneyDiscount = cartTotal * (discount.GiaTri / 100);
-        } else {
-            moneyDiscount = discount.GiaTri;
-        }
+        const value = Number(discount.GiaTri) || 0;
+        let moneyDiscount = discount.LoaiGiamGia === 'percent' ? cartTotal * (value / 100) : value;
 
         if (moneyDiscount > cartTotal) {
             moneyDiscount = cartTotal; // Khong giam qua tong tien
         }
+        moneyDiscount = Math.round(moneyDiscount); // khớp cách server tính khi tạo đơn
 
         res.json({
             success: true,
@@ -109,12 +107,17 @@ router.put('/:id', ...editor, async (req, res, next) => {
             return res.json({ success: false, message: 'Thiếu ID' });
         }
         
-        const code = req.body.Code;
-        const loai = req.body.LoaiGiamGia;
-        const giaTri = req.body.GiaTri;
-        const dk = req.body.DonHangToiThieu;
-        const sl = req.body.SoLuong;
-        const han = req.body.NgayHetHan;
+        const code = String(req.body.Code || '').trim();
+        const loai = req.body.LoaiGiamGia === 'fixed' ? 'fixed' : 'percent';
+        const giaTri = parseFloat(req.body.GiaTri) || 0;
+        const dk = parseFloat(req.body.DonHangToiThieu) || 0;
+        const sl = parseInt(req.body.SoLuong, 10) || 0;
+        // Chuỗi rỗng không hợp lệ với cột DATETIME: bỏ trống nghĩa là không giới hạn.
+        const han = req.body.NgayHetHan || null;
+
+        if (!code || giaTri <= 0) {
+            return res.json({ success: false, message: 'Dữ liệu không hợp lệ' });
+        }
 
         await pool.query(
             "UPDATE MaGiamGia SET Code = ?, LoaiGiamGia = ?, GiaTri = ?, DonHangToiThieu = ?, SoLuong = ?, NgayHetHan = ? WHERE MaGG = ?",

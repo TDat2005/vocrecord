@@ -13,6 +13,8 @@ const { rateLimit } = require('../middleware/rate-limit.middleware');
 const JWT_SECRET = process.env.JWT_SECRET;
 const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 10, message: 'Bạn đăng nhập sai hoặc thử quá nhiều lần. Vui lòng thử lại sau 15 phút.' });
 const otpLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 5, message: 'Bạn đã yêu cầu OTP quá nhiều lần. Vui lòng thử lại sau.' });
+// Giới hạn số lần nhập OTP: mã chỉ có 6 chữ số nên không chặn thì có thể dò hết trong 5 phút hiệu lực.
+const verifyLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 10, message: 'Bạn nhập mã OTP quá nhiều lần. Vui lòng thử lại sau 15 phút.' });
 
 // POST /login
 router.post('/login', loginLimiter, async (req, res, next) => {
@@ -31,9 +33,17 @@ router.post('/login', loginLimiter, async (req, res, next) => {
                 return res.json({ success: false, message: 'Tài khoản của bạn đã bị khoá. Vui lòng liên hệ Admin.' });
             }
 
+            // Đăng nhập đúng thì xóa bộ đếm: giới hạn chỉ nhằm chặn dò mật khẩu.
+            loginLimiter.reset(req);
+
             const profile = await KhachHangModel.getByAccountId(user.MaTK);
             const customerId = profile ? profile.MaKH : null;
-            const name = profile ? profile.HoTen : '';
+            let name = profile ? profile.HoTen : '';
+            if (user.VaiTro !== 'khachhang') {
+                // Nhân viên/admin: ưu tiên tên trong hồ sơ nhân viên (header & trang quản trị hiển thị tên này).
+                const [staffRows] = await pool.query('SELECT HoTen FROM NhanVien WHERE MaTK = ? LIMIT 1', [user.MaTK]);
+                name = staffRows[0]?.HoTen || name;
+            }
 
             // Generate JWT
             const token = jwt.sign(
@@ -100,7 +110,7 @@ router.post('/send-register-otp', otpLimiter, async (req, res, next) => {
 });
 
 // POST /verify-register-otp
-router.post('/verify-register-otp', async (req, res, next) => {
+router.post('/verify-register-otp', verifyLimiter, async (req, res, next) => {
     let connection;
     try {
         const email = (req.body.email || '').trim().toLowerCase();
@@ -187,7 +197,7 @@ router.post('/send-forgot-otp', otpLimiter, async (req, res, next) => {
 });
 
 // POST /verify-forgot-otp
-router.post('/verify-forgot-otp', async (req, res, next) => {
+router.post('/verify-forgot-otp', verifyLimiter, async (req, res, next) => {
     try {
         const email = (req.body.email || '').trim();
         const otpCode = (req.body.otp || '').trim();
@@ -208,7 +218,7 @@ router.post('/verify-forgot-otp', async (req, res, next) => {
 });
 
 // POST /reset-password
-router.post('/reset-password', async (req, res, next) => {
+router.post('/reset-password', verifyLimiter, async (req, res, next) => {
     try {
         const email = (req.body.email || '').trim();
         const otpCode = (req.body.otp || '').trim();

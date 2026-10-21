@@ -15,7 +15,7 @@ router.get('/', async (req, res, next) => {
         }
 
         const [rows] = await pool.query(
-            "SELECT sp.MaSP as id, sp.TenSP as title, sp.NgheSi as artist, sp.GiaBan as price, sp.HinhAnh as image, yt.MaYT FROM YeuThich yt JOIN SanPham sp ON yt.MaSP = sp.MaSP WHERE yt.MaKH = ?",
+            "SELECT sp.MaSP as id, sp.TenSP as title, sp.NgheSi as artist, sp.GiaBan as price, sp.HinhAnh as image, sp.SoLuongTon as stock, sp.TinhTrang as status, yt.MaYT FROM YeuThich yt JOIN SanPham sp ON yt.MaSP = sp.MaSP WHERE yt.MaKH = ?",
             [customerId]
         );
         res.json({ success: true, data: rows });

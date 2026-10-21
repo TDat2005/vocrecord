@@ -1,317 +1,455 @@
 /* ============================================
-   ADMIN PANEL
+   TRANG QUẢN TRỊ (giống Shopify Admin / Polaris)
    ============================================ */
 
-.admin-layout {
+.admin {
   min-height: 100vh;
-  display: flex;
-  background: var(--gray-100);
-  font-family: var(--font-body);
+  background: var(--color-bg-muted);
+  font-size: 0.875rem;
 }
 
-/* SIDEBAR */
-.admin-sidebar {
-  display: none;
-  flex-direction: column;
-  width: 16rem;
-  background: var(--color-warning);
-  border-right: 4px solid #000;
-}
-
-@media (min-width: 1024px) {
-  .admin-sidebar {
-    display: flex;
-  }
-}
-
-.admin-sidebar-logo {
-  padding: 1.5rem;
-  border-bottom: 4px solid #000;
-  background: #000;
-  color: #fff;
-  text-align: center;
-}
-
-.admin-sidebar-logo h1 {
-  font-weight: 700;
-  font-size: 1.5rem;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-}
-
-.admin-nav {
-  flex: 1;
-  padding: 1rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.admin-nav-btn {
-  width: 100%;
+/* ---- Thanh trên ---- */
+.admin-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 60;
   display: flex;
   align-items: center;
   gap: 0.75rem;
-  padding: 0.75rem 1rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  transition: all var(--transition-base);
-  border: 2px solid #000;
-  background: #fff;
-  color: #000;
-  cursor: pointer;
-}
-
-.admin-nav-btn:hover {
-  transform: translateY(-2px);
-  box-shadow: var(--shadow-neo-sm);
-}
-
-.admin-nav-btn--active {
-  background: #000;
+  height: 56px;
+  padding: 0 1rem;
+  background: #1a1a1a;
   color: #fff;
 }
 
-/* HEADER */
-.admin-header {
-  background: #fff;
-  border-bottom: 4px solid #000;
-  padding: 1rem 2rem;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.admin-header-title {
-  font-size: 1.875rem;
-  font-weight: 700;
-  text-transform: uppercase;
-}
-
-.admin-menu-btn {
-  display: block;
-  padding: 0.5rem;
-  border: 2px solid #000;
-  background: none;
+.admin-topbar__menu {
+  display: inline-flex;
+  color: #fff;
 }
 
 @media (min-width: 1024px) {
-  .admin-menu-btn {
+  .admin-topbar__menu {
     display: none;
   }
 }
 
-/* MAIN CONTENT */
-.admin-main {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  min-height: 100vh;
+.admin-topbar__brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.9375rem;
+  font-weight: 600;
 }
 
-.admin-content {
-  flex: 1;
-  padding: 1rem;
+.admin-topbar__brand img {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+}
+
+.admin-topbar__right {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-left: auto;
+}
+
+.admin-topbar__link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  color: #d4d4d4;
+  font-size: 0.8125rem;
+}
+
+.admin-topbar__link:hover {
+  color: #fff;
+}
+
+.admin-topbar__user {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.8125rem;
+}
+
+.admin-topbar__avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius);
+  background: #36b37e;
+  color: #fff;
+  font-weight: 600;
+}
+
+@media (max-width: 640px) {
+  .admin-topbar__name,
+  .admin-topbar__link span {
+    display: none;
+  }
+}
+
+/* ---- Menu trái ---- */
+.admin-body {
+  display: grid;
+  grid-template-columns: 1fr;
 }
 
 @media (min-width: 1024px) {
-  .admin-content {
-    padding: 2rem;
+  .admin-body {
+    grid-template-columns: 15rem 1fr;
   }
 }
 
-/* STAT CARDS */
-.admin-stat-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 1.5rem;
+.admin-sidebar {
+  display: none;
+  padding: 0.75rem 0.5rem 2rem;
+  background: #ebebeb;
+  border-right: 1px solid var(--color-border);
+}
+
+@media (min-width: 1024px) {
+  .admin-sidebar {
+    display: block;
+    position: sticky;
+    top: 56px;
+    height: calc(100vh - 56px);
+    overflow-y: auto;
+  }
+
+  .admin-sidebar__close {
+    display: none;
+  }
+}
+
+@media (max-width: 1023px) {
+  .admin-sidebar--open {
+    position: fixed;
+    inset: 0 auto 0 0;
+    z-index: 80;
+    display: block;
+    width: min(80vw, 16rem);
+    overflow-y: auto;
+    box-shadow: var(--shadow-popover);
+  }
+
+  .admin-sidebar__close {
+    display: flex;
+    justify-content: flex-end;
+  }
+
+  .admin-sidebar__backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 70;
+    background: rgba(0, 0, 0, 0.4);
+  }
+}
+
+.admin-nav__group + .admin-nav__group {
+  margin-top: 1rem;
+}
+
+.admin-nav__title {
+  padding: 0.25rem 0.625rem;
+  color: var(--color-text-muted);
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.admin-nav__item {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  width: 100%;
+  padding: 0.4375rem 0.625rem;
+  border-radius: var(--radius);
+  color: #303030;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  text-align: left;
+}
+
+.admin-nav__item svg {
+  flex-shrink: 0;
+  color: #4a4a4a;
+}
+
+.admin-nav__item:hover {
+  background: #f1f1f1;
+}
+
+.admin-nav__item--active {
+  background: #fff;
+  font-weight: 600;
+  box-shadow: 0 1px 0 rgba(26, 26, 26, 0.07);
+}
+
+.admin-nav__item--active svg {
+  color: #1a1a1a;
+}
+
+/* ---- Nội dung ---- */
+.admin-main {
+  min-width: 0;
+  padding: 1.25rem 1rem 3rem;
 }
 
 @media (min-width: 768px) {
-  .admin-stat-grid {
-    grid-template-columns: repeat(4, 1fr);
+  .admin-main {
+    padding: 1.5rem 2rem 3rem;
   }
 }
 
-.admin-stat-card {
-  border: 2px solid #000;
-  padding: 1.5rem;
-  box-shadow: var(--shadow-neo);
-  transition: transform var(--transition-base);
-}
-
-.admin-stat-card:hover {
-  transform: translateY(-4px);
-}
-
-.admin-stat-card--yellow { background: var(--color-warning); }
-.admin-stat-card--pink { background: var(--color-pink); }
-.admin-stat-card--blue { background: #60a5fa; }
-.admin-stat-card--green { background: #34d399; }
-
-.admin-stat-label {
-  color: #000;
-  font-weight: 700;
-  text-transform: uppercase;
-  margin-bottom: 0.5rem;
-}
-
-.admin-stat-value {
-  font-size: 1.875rem;
-  font-weight: 700;
-  background: #fff;
-  border: 2px solid #000;
-  padding: 0.5rem 1rem;
-  display: inline-block;
-}
-
-/* ADMIN TABLE */
-.admin-table-box {
-  background: #fff;
-  border: 2px solid #000;
-  padding: 2rem;
-  box-shadow: var(--shadow-neo-lg);
-}
-
-.admin-table-box h2, .admin-table-box h3 {
-  font-weight: 700;
-  text-transform: uppercase;
-}
-
-.admin-table {
-  width: 100%;
-  text-align: left;
-  border-collapse: collapse;
-  font-weight: 700;
-}
-
-.admin-table thead tr {
-  background: #000;
-  color: #fff;
-}
-
-.admin-table th,
-.admin-table td {
-  padding: 0.75rem;
-  border: 2px solid #000;
-}
-
-.admin-table tbody tr:hover {
-  background: var(--gray-50);
-}
-
-/* ADMIN FORM */
-.admin-form-box {
-  background: #fff;
-  border: 2px solid #000;
-  padding: 2rem;
-  box-shadow: var(--shadow-neo-lg);
-  max-width: 42rem;
-}
-
-.admin-form {
+.admin-page {
   display: flex;
   flex-direction: column;
   gap: 1rem;
+  max-width: 72rem;
+  margin: 0 auto;
 }
 
-/* Employees section header */
-.admin-section-header {
+.admin-page__header {
   display: flex;
+  align-items: center;
   justify-content: space-between;
-  align-items: center;
-  background: var(--color-warning);
-  border: 4px solid #000;
-  padding: 1.5rem;
-  box-shadow: var(--shadow-neo-lg);
-  margin-bottom: 1.5rem;
-}
-
-.admin-section-header h2 {
-  font-size: 1.875rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  display: flex;
-  align-items: center;
   gap: 0.75rem;
+  flex-wrap: wrap;
 }
 
-/* Employee table */
-.admin-emp-table {
-  background: #fff;
-  border: 4px solid #000;
-  box-shadow: var(--shadow-neo-lg);
-  overflow: hidden;
+.admin-page__title {
+  font-size: 1.25rem;
+  font-weight: 700;
 }
 
-.admin-emp-table table {
-  width: 100%;
-  text-align: left;
+.admin-page__subtitle {
+  margin-top: 0.125rem;
+  color: var(--color-text-muted);
 }
 
-.admin-emp-table thead tr {
-  background: #000;
-  color: #fff;
-  text-transform: uppercase;
-  font-size: 0.875rem;
-  border-bottom: 4px solid #000;
-}
-
-.admin-emp-table th, .admin-emp-table td {
+.admin .card {
   padding: 1rem;
 }
 
-.admin-emp-table tbody tr {
-  border-bottom: 2px solid #000;
-  font-weight: 700;
+.admin .card--flush {
+  padding: 0;
 }
 
-.admin-emp-table tbody tr:hover {
-  background: #fef9c3;
+.admin .card__title {
+  font-size: 0.9375rem;
 }
 
-.emp-status-active {
-  background: #dcfce7;
-  color: #15803d;
-  padding: 0.25rem 0.75rem;
-  border: 2px solid #15803d;
+.admin .input,
+.admin .select,
+.admin .textarea {
+  font-size: 0.875rem;
+}
+
+.admin .label {
+  font-size: 0.8125rem;
+}
+
+.admin .btn {
+  min-height: 34px;
+  padding: 0.375rem 0.875rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.admin .btn--sm {
+  min-height: 28px;
+  padding: 0.25rem 0.625rem;
   font-size: 0.75rem;
 }
 
-.emp-status-locked {
-  background: #fee2e2;
-  color: #b91c1c;
-  padding: 0.25rem 0.75rem;
-  border: 2px solid #b91c1c;
-  font-size: 0.75rem;
+.admin .btn--plain {
+  min-height: auto;
+  padding: 0;
 }
 
-.emp-action-btn {
-  padding: 0.5rem;
-  border: 2px solid #000;
-  transition: all var(--transition-base);
+.admin .table td,
+.admin .table th {
+  padding: 0.625rem 0.75rem;
+}
+
+.admin-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.admin-search {
+  position: relative;
+  flex: 1;
+  min-width: 12rem;
+  max-width: 24rem;
+}
+
+.admin-search svg {
+  position: absolute;
+  top: 50%;
+  left: 0.625rem;
+  transform: translateY(-50%);
+  color: var(--color-text-muted);
+  pointer-events: none;
+}
+
+.admin-search .input {
+  padding-left: 2rem;
+}
+
+/* Thống kê */
+.admin-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+@media (min-width: 900px) {
+  .admin-stats {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+.admin-stat__label {
+  color: var(--color-text-muted);
+  font-size: 0.8125rem;
+}
+
+.admin-stat__value {
+  margin-top: 0.25rem;
+  font-size: 1.5rem;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.admin-chart {
+  position: relative;
+  height: 320px;
+  margin-top: 0.75rem;
+}
+
+.admin-filters {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.admin-filters .field {
+  min-width: 10rem;
+}
+
+.admin-details summary {
+  margin-top: 0.75rem;
+  color: var(--color-link);
+  font-size: 0.8125rem;
+  font-weight: 500;
   cursor: pointer;
 }
 
-.emp-action-edit {
-  background: var(--color-warning);
+/* Bảng: ô sản phẩm có ảnh nhỏ */
+.table-product {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 14rem;
 }
 
-.emp-action-edit:hover {
-  background: #000;
-  color: #fff;
+.table-product img {
+  flex-shrink: 0;
+  width: 2.5rem;
+  height: 2.5rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  object-fit: cover;
 }
 
-.emp-action-lock {
-  background: #ef4444;
-  color: #fff;
+.table-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.25rem;
 }
 
-.emp-action-unlock {
-  background: #22c55e;
-  color: #fff;
+.table-actions--start {
+  justify-content: flex-start;
 }
 
-.emp-action-lock:hover, .emp-action-unlock:hover {
-  background: #000;
+.refund-box {
+  min-width: 13rem;
+  margin-top: 0.375rem;
+  padding: 0.5rem 0.625rem;
+  border-radius: var(--radius);
+  background: var(--tone-warning-bg);
+  color: var(--tone-warning-text);
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+
+/* Form trong trang quản trị */
+.admin-form-layout {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1rem;
+}
+
+@media (min-width: 1024px) {
+  .admin-form-layout {
+    grid-template-columns: 1fr 20rem;
+    align-items: start;
+  }
+}
+
+.admin-form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--color-border);
+}
+
+.import-row {
+  display: grid;
+  grid-template-columns: 1fr 5.5rem 7rem auto;
+  gap: 0.5rem;
+  align-items: end;
+}
+
+@media (max-width: 640px) {
+  .import-row {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.reply-cell {
+  display: flex;
+  gap: 0.375rem;
+  min-width: 14rem;
+}
+
+.image-preview {
+  aspect-ratio: 1 / 1;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-bg-subtle);
+}
+
+.image-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.table-product > span {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
 }

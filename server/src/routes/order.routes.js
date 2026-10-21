@@ -3,7 +3,6 @@ const router = express.Router();
 const axios = require('axios');
 const pool = require('../config/database');
 const DonHangModel = require('../models/donhang.model');
-const SanPhamModel = require('../models/sanpham.model');
 const KhachHangModel = require('../models/khachhang.model');
 const DiscountModel = require('../models/discount.model');
 const PayOSService = require('../services/payos.service');
@@ -13,6 +12,11 @@ const { createShipment } = require('./shipping.routes');
 const { authenticate, requireRole } = require('../middleware/auth.middleware');
 
 const staff = [authenticate, requireRole('admin', 'nhanvien')];
+
+// Địa chỉ website để PayOS chuyển khách về sau khi thanh toán. Ưu tiên APP_URL trong .env,
+// không có thì lấy theo trang khách đang mở (header Origin), cuối cùng là localhost:8080.
+const appUrl = (req) => (process.env.APP_URL || req.get('origin') || 'http://localhost:8080').replace(/\/+$/, '');
+const withOrderId = (url, orderId) => `${url}${url.includes('?') ? '&' : '?'}order_id=${orderId}`;
 
 const expireUnpaidPayosOrders = async () => {
     let connection;
@@ -31,24 +35,21 @@ const expireUnpaidPayosOrders = async () => {
         for (const order of expiredOrders) {
             try {
                 await connection.beginTransaction();
-                await connection.execute(
+                const [cancelled] = await connection.execute(
                     "UPDATE DonHang SET TrangThai = 'dahuy', GhiChu = CONCAT(COALESCE(GhiChu, ''), ' [Hệ thống tự động hủy do quá 10 phút chưa thanh toán PayOS]') WHERE MaDH = ? AND TrangThai = 'choxacnhan'",
                     [order.MaDH]
                 );
+                // Tiến trình chạy định kỳ và mỗi lần gọi GET /orders có thể trùng nhau:
+                // lần chạy sau không hủy được (affectedRows = 0) thì không được cộng kho lần nữa.
+                if (!cancelled.affectedRows) {
+                    await connection.rollback();
+                    continue;
+                }
                 await connection.execute(
                     "UPDATE ThanhToan SET TrangThaiTT = 'thatbai', NgayTT = NOW() WHERE MaDH = ? AND TrangThaiTT = 'chuathanhtoan'",
                     [order.MaDH]
                 );
-                const [items] = await connection.execute(
-                    "SELECT MaSP, SoLuong FROM ChiTietDonHang WHERE MaDH = ?",
-                    [order.MaDH]
-                );
-                for (const item of items) {
-                    await connection.execute(
-                        "UPDATE SanPham SET SoLuongTon = SoLuongTon + ? WHERE MaSP = ?",
-                        [item.SoLuong, item.MaSP]
-                    );
-                }
+                await DonHangModel.releaseCancelledOrder(order.MaDH, connection);
                 await connection.commit();
                 console.log(`[PayOS Expiry] Đã tự động hủy đơn #${order.MaDH} và hoàn lại tồn kho do quá hạn 10 phút`);
             } catch (err) {
@@ -195,9 +196,10 @@ router.post('/', authenticate, async (req, res, next) => {
             const orderCode = parseInt(Date.now().toString().slice(-9) + maDH.toString().slice(-5));
             await DonHangModel.createPayment(maDH, totalAfterDiscount, phuongThucThanhToan, 'chuathanhtoan', orderCode, connection);
             
-            const returnUrl = (process.env.PAYOS_RETURN_URL || '') + "?order_id=" + maDH;
-            const cancelUrl = (process.env.PAYOS_CANCEL_URL || '') + "?order_id=" + maDH;
-            
+            // Trước đây khi chưa đặt PAYOS_RETURN_URL, link quay về chỉ là "?order_id=..." (không hợp lệ) nên PayOS từ chối.
+            const returnUrl = withOrderId(process.env.PAYOS_RETURN_URL || `${appUrl(req)}/payment-result`, maDH);
+            const cancelUrl = withOrderId(process.env.PAYOS_CANCEL_URL || `${appUrl(req)}/payment-result`, maDH);
+
             payosData = await PayOSService.createPaymentLink(orderCode, totalAfterDiscount, "VocRecords DH" + maDH, returnUrl, cancelUrl);
         } else {
             await DonHangModel.createPayment(maDH, totalAfterDiscount, phuongThucThanhToan, trangThaiThanhToan, null, connection);
@@ -208,23 +210,23 @@ router.post('/', authenticate, async (req, res, next) => {
 
         let shipping = { status: GHNService.isConfigured() ? 'pending_confirmation' : 'disabled', fee: shippingFee };
 
-        try {
+        // Email xác nhận gửi ở nền: SMTP chậm không làm khách phải chờ khi bấm đặt hàng.
+        (async () => {
             const customerInfo = await KhachHangModel.getProfile(customer_id);
-            if (customerInfo && customerInfo.Email) {
-                const orderItems = await DonHangModel.getOrderItems(maDH);
-                const emailData = {
-                    orderId: maDH,
-                    total: totalAfterDiscount,
-                    items: orderItems,
-                    address,
-                    nguoiNhan,
-                    sdtNhan
-                };
-                await EmailService.sendOrderConfirmation(customerInfo.Email, emailData);
-            }
-        } catch (emailErr) {
-            console.error('Order email error:', emailErr.message);
-        }
+            if (!customerInfo?.Email) return;
+            const orderItems = await DonHangModel.getOrderItems(maDH);
+            await EmailService.sendOrderConfirmation(customerInfo.Email, {
+                orderId: maDH,
+                subtotal,
+                discount: soTienGiam,
+                shippingFee,
+                total: totalAfterDiscount,
+                items: orderItems,
+                address,
+                nguoiNhan,
+                sdtNhan
+            });
+        })().catch((emailErr) => console.error('Order email error:', emailErr.message));
 
         const response = { success: true, message: 'Đặt hàng thành công!', order_id: maDH };
         response.shipping = shipping;
@@ -323,12 +325,13 @@ router.put('/:id/status', ...staff, async (req, res, next) => {
             throw conflict;
         }
 
+        if (status === 'hoanthanh') {
+            // Giao thành công đơn COD = shipper đã thu tiền. Trước đây đơn COD hoàn thành vẫn hiện "Chưa thanh toán".
+            await DonHangModel.markCodPaid(orderId, connection);
+        }
+
         if (status === 'dahuy') {
-            // Hoàn tồn kho
-            const items = await DonHangModel.getOrderItems(orderId, connection);
-            for (const item of items) {
-                await SanPhamModel.updateStock(item.MaSP, item.SoLuong, connection);
-            }
+            await DonHangModel.releaseCancelledOrder(orderId, connection);
             if (order.TrangThaiTT === 'dathanhtoan') {
                 // Đã thanh toán online: chuyển sang chờ hoàn tiền, nhân viên liên hệ khách lấy thông tin ngân hàng.
                 await connection.execute(
@@ -352,17 +355,7 @@ router.put('/:id/status', ...staff, async (req, res, next) => {
         connection.release();
         connection = null;
 
-        try {
-            if (order.MaKH) {
-                const customer = await KhachHangModel.getProfile(order.MaKH);
-                if (customer && customer.Email) {
-                    await EmailService.sendOrderStatusUpdate(customer.Email, orderId, status);
-                }
-            }
-        } catch (emailErr) {
-            console.error('Status email error:', emailErr.message);
-        }
-
+        EmailService.notifyOrderStatus(orderId, status);
         res.json({ success: true, message: 'Cập nhật trạng thái thành công' });
     } catch (error) {
         if (connection) {
@@ -448,23 +441,13 @@ router.put('/:id/cancel', authenticate, async (req, res, next) => {
             );
         }
 
-        // Hoàn lại tồn kho
-        const items = await DonHangModel.getOrderItems(orderId, connection);
-        for (const item of items) {
-            await SanPhamModel.updateStock(item.MaSP, item.SoLuong, connection);
-        }
+        await DonHangModel.releaseCancelledOrder(orderId, connection);
 
         await connection.commit();
         connection.release();
+        connection = null;
 
-        try {
-            const customer = await KhachHangModel.getProfile(order.MaKH);
-            if (customer && customer.Email) {
-                await EmailService.sendOrderStatusUpdate(customer.Email, orderId, 'dahuy');
-            }
-        } catch (emailErr) {
-            console.error('Cancel email error:', emailErr.message);
-        }
+        EmailService.notifyOrderStatus(orderId, 'dahuy');
 
         res.json({
             success: true,
@@ -498,16 +481,7 @@ router.put('/:id/refund-confirm', ...staff, async (req, res, next) => {
             [orderId]
         );
 
-        try {
-            if (order.MaKH) {
-                const customer = await KhachHangModel.getProfile(order.MaKH);
-                if (customer && customer.Email) {
-                    await EmailService.sendOrderStatusUpdate(customer.Email, orderId, 'dahoantien');
-                }
-            }
-        } catch (emailErr) {
-            console.error('Refund email error:', emailErr.message);
-        }
+        EmailService.notifyOrderStatus(orderId, 'dahoantien');
 
         res.json({ success: true, message: 'Xác nhận hoàn tiền thành công!' });
     } catch (error) {
@@ -576,8 +550,9 @@ router.get('/:id/status', authenticate, async (req, res, next) => {
                 if (result.code === '00' && result.data && result.data.status) {
                     const payosStatus = result.data.status;
                     if (payosStatus === 'PAID') {
-                        await pool.query("UPDATE ThanhToan SET TrangThaiTT = 'dathanhtoan' WHERE MaDH = ?", [orderId]);
+                        await pool.query("UPDATE ThanhToan SET TrangThaiTT = 'dathanhtoan', NgayTT = COALESCE(NgayTT, NOW()) WHERE MaDH = ?", [orderId]);
                         await pool.query("UPDATE DonHang SET TrangThai = 'daxacnhan' WHERE MaDH = ? AND TrangThai = 'choxacnhan'", [orderId]);
+                        await pool.query("UPDATE DonHang SET TrangThaiHoanTien = 'choxuly' WHERE MaDH = ? AND TrangThai = 'dahuy' AND TrangThaiHoanTien = 'khongapdung'", [orderId]);
                         return res.json({ success: true, status: 'dathanhtoan' });
                     } else if (payosStatus === 'CANCELLED' || payosStatus === 'EXPIRED') {
                         // Hủy đơn + hoàn kho trong 1 transaction. Trước đây chỉ đặt ThanhToan = thatbai,
@@ -593,10 +568,7 @@ router.get('/:id/status', authenticate, async (req, res, next) => {
                                 "UPDATE ThanhToan SET TrangThaiTT = 'thatbai', NgayTT = NOW() WHERE MaDH = ? AND TrangThaiTT = 'chuathanhtoan'",
                                 [orderId]
                             );
-                            if (cancelled.affectedRows) {
-                                const items = await DonHangModel.getOrderItems(orderId, conn);
-                                for (const item of items) await SanPhamModel.updateStock(item.MaSP, item.SoLuong, conn);
-                            }
+                            if (cancelled.affectedRows) await DonHangModel.releaseCancelledOrder(orderId, conn);
                             await conn.commit();
                         } catch (txErr) {
                             await conn.rollback();

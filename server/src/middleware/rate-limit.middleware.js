@@ -1,8 +1,10 @@
 const buckets = new Map();
 
+const keyOf = (req) => `${req.ip || 'unknown'}:${req.baseUrl}${req.path}`;
+
 const rateLimit = ({ windowMs = 15 * 60 * 1000, max = 20, message = 'Bạn thao tác quá nhiều lần. Vui lòng thử lại sau.' } = {}) => {
-    return (req, res, next) => {
-        const key = `${req.ip || 'unknown'}:${req.baseUrl}${req.path}`;
+    const middleware = (req, res, next) => {
+        const key = keyOf(req);
         const now = Date.now();
         const current = buckets.get(key);
 
@@ -19,6 +21,9 @@ const rateLimit = ({ windowMs = 15 * 60 * 1000, max = 20, message = 'Bạn thao 
 
         return next();
     };
+    // Xóa bộ đếm của request hiện tại (vd: đăng nhập thành công thì không tính vào số lần sai).
+    middleware.reset = (req) => buckets.delete(keyOf(req));
+    return middleware;
 };
 
 // Dọn bucket hết hạn định kỳ để không giữ IP vô thời hạn trong RAM.

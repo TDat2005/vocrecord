@@ -36,7 +36,7 @@ router.get('/profile', async (req, res, next) => {
 router.put('/profile', async (req, res, next) => {
     try {
         const customerId = req.user.customerId;
-        const { fullName = '', phone = '', address = '' } = req.body;
+        const { fullName = '', phone = '', address } = req.body;
 
         if (!customerId) {
             return res.status(403).json({ success: false, message: 'Tài khoản chưa có hồ sơ khách hàng' });

@@ -1,9 +1,135 @@
-/* Shop-specific styles (extends shared catalog patterns) */
-.shop-page .product-card-badge {
-  font-size: 10px;
+/* ============================================
+   CỬA HÀNG & DANH MỤC (giống trang Collection của Dawn)
+   ============================================ */
+
+.collection {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 2rem;
 }
-@media (min-width: 768px) {
-  .shop-page .product-card-badge {
-    font-size: 0.75rem;
+
+@media (min-width: 990px) {
+  .collection {
+    grid-template-columns: 15rem 1fr;
+    align-items: start;
+  }
+}
+
+.collection__toolbar {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.collection__sort {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-left: auto;
+}
+
+.collection__sort .select {
+  width: auto;
+}
+
+/* Bộ lọc: cột trái trên desktop, panel trượt trên điện thoại */
+.collection__filters {
+  display: none;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.collection__filters-header {
+  display: none;
+}
+
+@media (min-width: 990px) {
+  .collection__filters {
+    display: flex;
+    position: sticky;
+    top: calc(var(--header-height) + 4rem);
+  }
+
+  .collection__filter-toggle {
+    display: none;
+  }
+}
+
+@media (max-width: 989px) {
+  .collection__filters--open {
+    position: fixed;
+    inset: 0 auto 0 0;
+    z-index: 300;
+    display: flex;
+    width: min(86vw, 22rem);
+    padding: 0 1.25rem 1.5rem;
+    background: #fff;
+    overflow-y: auto;
+    box-shadow: var(--shadow-popover);
+  }
+
+  .collection__filters--open .collection__filters-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    position: sticky;
+    top: 0;
+    padding: 0.75rem 0;
+    background: #fff;
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .collection__filters-header h2 {
+    font-size: 1.0625rem;
+  }
+}
+
+.facet {
+  border: none;
+}
+
+.facet__title {
+  margin-bottom: 0.75rem;
+  font-size: 0.9375rem;
+  font-weight: 600;
+}
+
+.facet__list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  max-height: 18rem;
+  overflow-y: auto;
+}
+
+.facet__option {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  padding: 0.3125rem 0;
+  font-size: 0.9375rem;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.facet__option:hover,
+.facet__option:has(input:checked) {
+  color: var(--color-text);
+}
+
+.collection__backdrop {
+  display: none;
+}
+
+@media (max-width: 989px) {
+  .collection__backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 299;
+    display: block;
+    background: rgba(0, 0, 0, 0.4);
   }
 }

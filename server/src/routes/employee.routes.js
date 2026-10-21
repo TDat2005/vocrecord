@@ -105,6 +105,9 @@ router.put('/:id/toggle', async (req, res, next) => {
         if (!accountId) {
             return res.json({ success: false, message: 'Thiếu ID Tài khoản' });
         }
+        if (Number(accountId) === Number(req.user.id) && status === 0) {
+            return res.json({ success: false, message: 'Không thể tự khóa tài khoản đang đăng nhập' });
+        }
 
         const success = await NhanVienModel.toggleStatus(accountId, status);
         if (success) {

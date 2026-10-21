@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../config/database');
 const PayOSService = require('../services/payos.service');
+const DonHangModel = require('../models/donhang.model');
 
 // 1. POST /webhook — Receive PayOS webhook callback
 router.post('/webhook', async (req, res, next) => {
@@ -45,15 +46,14 @@ router.post('/webhook', async (req, res, next) => {
                         // trước khi sang "đang giao" (đồng bộ với nhánh kiểm tra trạng thái trong order.routes.js).
                         await connection.query("UPDATE ThanhToan SET TrangThaiTT = 'dathanhtoan', NgayTT = NOW() WHERE MaDH = ?", [maDH]);
                         await connection.query("UPDATE DonHang SET TrangThai = 'daxacnhan' WHERE MaDH = ? AND TrangThai = 'choxacnhan'", [maDH]);
+                        // Đơn đã bị tự hủy (quá hạn) nhưng tiền vẫn về: cần hoàn tiền cho khách.
+                        await connection.query("UPDATE DonHang SET TrangThaiHoanTien = 'choxuly' WHERE MaDH = ? AND TrangThai = 'dahuy' AND TrangThaiHoanTien = 'khongapdung'", [maDH]);
                     }
                 } else if (!['thatbai', 'dahuy', 'dathanhtoan'].includes(thanhToan.TrangThaiTT)) {
                     // The payment webhook can be retried. Re-stock only on the first failure.
                     await connection.query("UPDATE ThanhToan SET TrangThaiTT = 'thatbai', NgayTT = NOW() WHERE MaDH = ?", [maDH]);
-                    await connection.query("UPDATE DonHang SET TrangThai = 'dahuy' WHERE MaDH = ?", [maDH]);
-                    const [items] = await connection.query("SELECT MaSP, SoLuong FROM ChiTietDonHang WHERE MaDH = ?", [maDH]);
-                    for (const item of items) {
-                        await connection.query("UPDATE SanPham SET SoLuongTon = SoLuongTon + ? WHERE MaSP = ?", [item.SoLuong, item.MaSP]);
-                    }
+                    const [cancelled] = await connection.query("UPDATE DonHang SET TrangThai = 'dahuy' WHERE MaDH = ? AND TrangThai <> 'dahuy'", [maDH]);
+                    if (cancelled.affectedRows) await DonHangModel.releaseCancelledOrder(maDH, connection);
                 }
             }
             await connection.commit();

@@ -7,7 +7,7 @@
 <p align="center">
   <strong>Website thương mại điện tử chuyên kinh doanh Đĩa Than (Vinyl), Băng Cassette, Mâm Đĩa (Turntable) và Phụ Kiện Âm Thanh Analog.</strong>
   <br />
-  Thiết kế theo phong cách <strong>Neo-Brutalism</strong> cá tính, hiện đại và chuẩn trải nghiệm E-Commerce.
+  Giao diện đơn giản theo phong cách <strong>Shopify</strong>: cửa hàng giống theme Dawn, trang quản trị giống Shopify Admin.
 </p>
 
 <p align="center">
@@ -44,7 +44,7 @@
 **Vọc Records** là giải pháp nền tảng E-Commerce toàn diện dành cho cộng đồng yêu âm nhạc Analog tại Việt Nam:
 - **Địa chỉ Showroom**: 54 Triều Khúc, Phường Thanh Xuân Nam, Quận Thanh Xuân, Hà Nội.
 - **Hotline / Hỗ trợ**: 0766 255 478.
-- **Đặc trưng thiết kế**: Phong cách nghệ thuật **Neo-Brutalism** với viền đen tương phản cao (High-contrast borders), bóng đổ khối sắc nét (Hard drop shadows), typography mạnh mẽ kết hợp cùng trải nghiệm mua sắm mượt mà trên cả Desktop và Mobile.
+- **Đặc trưng thiết kế**: Phong cách tối giản theo Shopify — nền trắng, chữ Inter, viền mảnh, bo góc nhẹ, nhiều khoảng trắng; trang quản trị dùng bố cục menu trái + thẻ (card) giống Shopify Admin (Polaris). Hiển thị tốt trên cả Desktop và Mobile.
 
 ---
 
@@ -118,7 +118,7 @@ graph TD
 ### Công Nghệ Sử Dụng
 | Thành Phần | Công Nghệ / Thư Viện |
 | :--- | :--- |
-| **Frontend** | React 18, Vite, TypeScript, React Router v7, Lucide React, Chart.js, Neo-Brutalist CSS |
+| **Frontend** | React 18 (JavaScript/JSX), Vite, React Router v7, Lucide React, Chart.js, CSS thuần theo phong cách Shopify |
 | **Backend** | Node.js, Express.js, MySQL2 (Connection Pool), WebSocket (`ws`), JWT, Bcrypt |
 | **Cơ sở dữ liệu** | MySQL 8.0 (InnoDB, `utf8mb4_unicode_ci`) |
 | **Bên thứ ba** | Cổng thanh toán VietQR PayOS, Giao Hàng Nhanh (GHN), Nodemailer (Gmail SMTP) |
@@ -134,14 +134,16 @@ vocrecord/
 │   ├── public/                 # Ảnh tĩnh, logo, catalog sản phẩm
 │   ├── src/
 │   │   ├── app/
-│   │   │   ├── components/     # Header, MobileNav, Admin Chat/Discounts/Employees...
+│   │   │   ├── components/     # Header, ProductCard, Modal..., admin/ (các mục trang quản trị)
 │   │   │   ├── context/        # CartContext, WishlistContext
 │   │   │   ├── pages/          # Home, Shop, ProductDetail, Cart, Checkout, Account, Admin, OrderDetail...
-│   │   │   ├── routes.tsx      # Cấu hình định tuyến
-│   │   │   └── config/api.ts   # Cấu hình API Endpoint
-│   │   └── styles/             # Stylesheets Neo-Brutalism & Component styles
+│   │   │   ├── hooks/          # useProducts, useChatRoom, useCountdown
+│   │   │   ├── utils/          # api (gọi API), auth (phiên đăng nhập), format, status
+│   │   │   ├── routes.jsx      # Cấu hình định tuyến
+│   │   │   └── config/api.js   # Cấu hình API Endpoint
+│   │   └── styles/             # theme.css (biến màu), shared.css (thành phần chung), pages/*.css
 │   ├── package.json
-│   └── vite.config.ts
+│   └── vite.config.js
 │
 ├── server/                     # Mã nguồn Backend (Node.js + Express)
 │   ├── src/
@@ -253,18 +255,30 @@ JWT_SECRET=your_super_secret_jwt_key_here
 PAYOS_CLIENT_ID=your_payos_client_id
 PAYOS_API_KEY=your_payos_api_key
 PAYOS_CHECKSUM_KEY=your_payos_checksum_key
+# Địa chỉ website để PayOS chuyển khách về (không đặt thì lấy theo trang khách đang mở)
+APP_URL=http://localhost:8080
 
-# Dịch vụ vận chuyển Giao Hàng Nhanh (GHN)
+# Giao Hàng Nhanh (GHN) - địa chỉ 2 cấp (tỉnh/thành + phường/xã) theo sắp xếp hành chính 2025
+GHN_ENV=staging                    # staging = dev-online-gateway.ghn.vn
 GHN_TOKEN=your_ghn_api_token
-GHN_SHOP_ID=your_ghn_shop_id
-GHN_ENV=staging
-GHN_FROM_DISTRICT_ID=1488
-GHN_FROM_WARD_CODE=1A0307
+GHN_SHOP_ID=your_ghn_shop_id       # phải là shop thuộc đúng token (xem GET /v2/shop/all)
+GHN_FROM_NAME=Voc Records
+GHN_FROM_PHONE=0766255478
+GHN_FROM_ADDRESS=54 Triều Khúc
+GHN_FROM_WARD_NAME=Tên phường MỚI  # phải trùng địa chỉ cửa hàng đã khai trên trang GHN
+GHN_FROM_PROVINCE_NAME=Hà Nội
+GHN_WEBHOOK_TOKEN=                 # tùy chọn: URL webhook GHN thêm ?token=<giá trị này>
 
-# Gửi Email OTP & Thông báo (Gmail SMTP)
-EMAIL_USER=your_email@gmail.com
-EMAIL_PASS=your_gmail_app_password
+# Gửi Email OTP & Thông báo (Gmail SMTP, dùng App Password 16 ký tự)
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USER=your_email@gmail.com
+SMTP_PASS=your_gmail_app_password
+SMTP_FROM_EMAIL=your_email@gmail.com
+SMTP_FROM_NAME=Vọc Records
 ```
+
+> Khi chạy dev không có SMTP, mã OTP đăng ký / quên mật khẩu được in ra log của server.
 
 ---
 
@@ -286,10 +300,23 @@ docker exec vocrecord-db-1 sh -c 'mysqldump -u root -p"$MYSQL_ROOT_PASSWORD" --d
 
 ## 👤 Tài Khoản Mẫu Trải Nghiệm
 
-| Vai Trò | Email Đăng Nhập | Mật Khẩu | Quyền Hạn |
-| :--- | :--- | :--- | :--- |
-| **Quản Trị Viên (Admin)** | `admin@vocrecord.local` | `Admin@12345` | Toàn quyền quản lý cửa hàng, đơn hàng, hóa đơn, doanh thu, nhân sự |
-| **Khách Hàng Mẫu** | `demo@vocrecord.local` | `Demo@12345` | Mua hàng, thanh toán PayOS/COD, quản lý sổ địa chỉ, đổi mật khẩu |
+Tạo bằng `database/seed_demo_accounts.sql` (tự chạy khi khởi tạo CSDL Docker lần đầu; với CSDL đang chạy thì nạp thủ công):
+
+```bash
+docker compose exec -T db sh -c 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" clonevocrecord' < database/seed_demo_accounts.sql
+```
+
+Mật khẩu chung: `Demo@123`
+
+| Vai Trò | Tên đăng nhập | Ghi chú |
+| :--- | :--- | :--- |
+| **Quản trị viên** | `admin.demo` | Toàn quyền, có mục Nhân sự & phân quyền |
+| **Nhân viên** | `nhanvien.demo` | Quản lý đơn hàng, kho, nội dung, chat |
+| **Khách hàng** | `khach1@vocrecord.local` | Có 2 địa chỉ giao hàng ở Hà Nội |
+| **Khách hàng** | `khach2@vocrecord.local` | Có 1 địa chỉ giao hàng ở TP.HCM |
+| **Khách bị khóa** | `khach.bikhoa@vocrecord.local` | Dùng để thử thông báo tài khoản bị khóa |
+
+Mã giảm giá mẫu: `WELCOME10` (giảm 10%), `VINYL50` (giảm 50.000đ cho đơn từ 500.000đ), `AUDIO15` (giảm 15% cho đơn từ 1.000.000đ).
 
 ---
 

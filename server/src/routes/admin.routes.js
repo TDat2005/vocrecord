@@ -11,7 +11,7 @@ router.get('/dashboard', async (req, res, next) => {
         const [revRows, ordRows, prodRows, custRows, topProducts] = await Promise.all([
             pool.query("SELECT SUM(TongTien) as todayRevenue FROM DonHang WHERE NgayDat >= CURDATE() AND NgayDat < CURDATE() + INTERVAL 1 DAY AND TrangThai = 'hoanthanh'"),
             pool.query("SELECT COUNT(MaDH) as todayOrders FROM DonHang WHERE NgayDat >= CURDATE() AND NgayDat < CURDATE() + INTERVAL 1 DAY AND TrangThai != 'dahuy'"),
-            pool.query("SELECT COUNT(MaSP) as totalProducts FROM SanPham"),
+            pool.query("SELECT COUNT(MaSP) as totalProducts FROM SanPham WHERE TinhTrang <> 'ngungkinhdoanh'"),
             pool.query("SELECT COUNT(MaKH) as totalCustomers FROM KhachHang"),
             pool.query(`
             SELECT sp.MaSP as id, sp.TenSP as name, sp.NgheSi as artist, SUM(ct.SoLuong) as sales, SUM(ct.SoLuong * ct.DonGia) as revenue
@@ -44,7 +44,8 @@ router.get('/dashboard', async (req, res, next) => {
 router.get('/customers', async (req, res, next) => {
     try {
         const [customers] = await pool.query(`
-            SELECT kh.*, COUNT(dh.MaDH) as totalOrders, COALESCE(SUM(dh.TongTien), 0) as totalSpent
+            SELECT kh.MaKH as id, kh.HoTen as name, kh.Email as email, kh.SoDienThoai as phone,
+                   COUNT(dh.MaDH) as totalOrders, COALESCE(SUM(dh.TongTien), 0) as totalSpent
             FROM KhachHang kh
             LEFT JOIN DonHang dh ON kh.MaKH = dh.MaKH AND dh.TrangThai = 'hoanthanh'
             GROUP BY kh.MaKH
@@ -61,7 +62,7 @@ router.get('/customers', async (req, res, next) => {
 router.get('/inventory', async (req, res, next) => {
     try {
         const [inventory] = await pool.query(`
-            SELECT sp.MaSP as id, sp.TenSP as name, sp.GiaBan as price, sp.SoLuongTon as stock, dm.TenDM as genre, sp.TinhTrang as status
+            SELECT sp.MaSP as id, sp.TenSP as name, sp.GiaBan as price, sp.SoLuongTon as stock, dm.TenDM as genre, sp.TinhTrang as status, sp.HinhAnh as image
             FROM SanPham sp
             LEFT JOIN DanhMuc dm ON sp.MaDM = dm.MaDM
             ORDER BY sp.MaSP DESC
