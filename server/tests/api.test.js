@@ -11,9 +11,9 @@
  */
 const BASE = process.env.BASE_URL || 'http://localhost:3000/api';
 const ACC = {
-  customer: [process.env.CUSTOMER_USER || 'khachdemo', process.env.CUSTOMER_PASS || 'Demo@123'],
-  staff: [process.env.STAFF_USER || 'nhanvien', process.env.STAFF_PASS || 'Demo@123'],
-  admin: [process.env.ADMIN_USER || 'admin', process.env.ADMIN_PASS || 'Demo@123'],
+  customer: [process.env.CUSTOMER_USER || 'khach1@vocrecord.local', process.env.CUSTOMER_PASS || 'Demo@123'],
+  staff: [process.env.STAFF_USER || 'nhanvien.demo', process.env.STAFF_PASS || 'Demo@123'],
+  admin: [process.env.ADMIN_USER || 'admin.demo', process.env.ADMIN_PASS || 'Demo@123'],
 };
 
 async function call(method, url, body, token) {
