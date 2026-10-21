@@ -2,6 +2,8 @@
 -- Chú ý: Dựa trên báo cáo phân tích thiết kế, gồm 14 bảng
 
 CREATE DATABASE IF NOT EXISTS clonevocrecord DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+-- Docker đã tạo sẵn CSDL (MYSQL_DATABASE) với collation mặc định nên câu trên bị bỏ qua; ép lại cho đồng nhất.
+ALTER DATABASE clonevocrecord CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 USE clonevocrecord;
 SET NAMES utf8mb4;
 

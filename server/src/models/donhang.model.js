@@ -111,7 +111,7 @@ class DonHangModel {
             await connection.execute('UPDATE SanPham SET SoLuongTon = SoLuongTon + ? WHERE MaSP = ?', [item.SoLuong, item.MaSP]);
         }
         await connection.execute(
-            `UPDATE MaGiamGia mg JOIN DonHang dh ON dh.CodeGiamGia = mg.Code
+            `UPDATE MaGiamGia mg JOIN DonHang dh ON dh.CodeGiamGia COLLATE utf8mb4_unicode_ci = mg.Code
              SET mg.DaDung = GREATEST(mg.DaDung - 1, 0)
              WHERE dh.MaDH = ? AND dh.SoTienGiam > 0`,
             [orderId]
