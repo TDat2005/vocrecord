@@ -39,6 +39,7 @@ jobs:
       SMTP_PORT: 1
       RETURN_WINDOW_DAYS: 7
       TEST_PASS: Ci@123456
+      ONNXRUNTIME_NODE_INSTALL: skip   # không tải bản CUDA của onnxruntime
     steps:
       - uses: actions/checkout@v4
 
@@ -51,6 +52,13 @@ jobs:
       - name: Cài thư viện backend
         working-directory: server
         run: npm ci
+
+      # Mô hình tìm kiếm AI (~250MB, tải từ Hugging Face): giữ lại giữa các lần chạy.
+      - name: Cache mô hình AI
+        uses: actions/cache@v4
+        with:
+          path: server/.cache/models
+          key: ai-models-e5small-clipb32-q8-v1
 
       - name: Kiểm tra cú pháp
         working-directory: server
@@ -68,6 +76,16 @@ jobs:
           nohup node src/index.js > api.log 2>&1 &
           for i in $(seq 1 30); do curl -sf http://localhost:3000/health && exit 0; sleep 1; done
           cat api.log; exit 1
+
+      # Server tải mô hình và tính vector ở nền. Không tải được (Hugging Face lỗi) thì
+      # kiểm thử vẫn chạy: tìm kiếm tự lùi về từ khóa.
+      - name: Chờ chỉ mục tìm kiếm AI
+        run: |
+          for i in $(seq 1 60); do
+            curl -s http://localhost:3000/api/search/status | grep -q '"text":{"model":"[^"]*","dtype":"[^"]*","status":"ready"' && break
+            sleep 5
+          done
+          curl -s http://localhost:3000/api/search/status; echo
 
       - name: Kiểm thử API (tests/api.test.js)
         working-directory: server
@@ -106,6 +124,8 @@ jobs:
 
       - name: Cài thư viện và build
         working-directory: DiaNhac
+        env:
+          ONNXRUNTIME_NODE_INSTALL: skip
         run: |
           npm ci
           npm run build

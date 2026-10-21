@@ -278,6 +278,62 @@ const ship = { address: '12 Thái Hà, Đống Đa, Hà Nội', nguoiNhan: 'Khá
     return [Boolean(token), token ? 'Lần thứ 12 vẫn đăng nhập được' : 'Bị chặn'];
   });
 
+  // ---- Tìm kiếm thông minh, trợ lý AI ----
+  // Đạt cả khi mô hình ngữ nghĩa chưa tải được (tìm kiếm tự lùi về từ khóa).
+  const search = async (q, extra = '') => (await call('GET', `/search?q=${encodeURIComponent(q)}${extra}`)).data;
+  const textModelReady = (await call('GET', '/search/status')).data.data?.models.text.status === 'ready';
+  await test('T43', 'Tìm "nhạc buồn nghe lúc mưa, dưới 800k"', 'Có kết quả, đều ≤ 800.000đ, chỉ đĩa nhạc', async () => {
+    const d = (await search('nhạc buồn nghe lúc mưa, dưới 800k')).data;
+    const prices = d.results.map((p) => Number(p.price));
+    const musicOnly = d.results.every((p) => /vinyl|cassette/i.test(p.category));
+    const semanticOk = !textModelReady || d.semantic.used;
+    return [d.results.length > 0 && prices.every((p) => p <= 800000) && musicOnly && semanticOk,
+      `${d.results.length} kết quả, cao nhất ${Math.max(...prices)}đ, ngữ nghĩa: ${d.semantic.used ? 'có' : 'không'} (${d.understood.chips.map((c) => c.label).join(', ')})`];
+  });
+  await test('T44', 'Tìm không dấu "nhac buon nghe luc mua duoi 800k"', 'Hiểu giá như câu có dấu', async () => {
+    const d = (await search('nhac buon nghe luc mua duoi 800k')).data;
+    return [d.results.length > 0 && d.understood.filters.maxPrice === 800000 && d.results.every((p) => Number(p.price) <= 800000),
+      `${d.results.length} kết quả, maxPrice=${d.understood.filters.maxPrice}`];
+  });
+  await test('T45', 'Tìm chỉ có điều kiện "cassette dưới 450k"', 'Toàn cassette ≤ 450.000đ, rẻ trước', async () => {
+    const d = (await search('cassette dưới 450k')).data;
+    const prices = d.results.map((p) => Number(p.price));
+    const sorted = prices.every((p, i) => i === 0 || prices[i - 1] <= p);
+    return [d.results.length > 0 && d.results.every((p) => /cassette/i.test(p.category) && Number(p.price) <= 450000) && sorted,
+      `${d.results.length} cassette: ${prices.join(', ')}`];
+  });
+  await test('T46', 'Tìm kèm tham số max_price, category', 'Áp dụng điều kiện có cấu trúc', async () => {
+    const d = (await search('jazz', '&max_price=850000&category=vinyl')).data;
+    return [d.results.length > 0 && d.results.every((p) => Number(p.price) <= 850000 && /vinyl/i.test(p.category)),
+      d.understood.chips.map((c) => c.label).join(', ') + ` · ${d.results.map((p) => p.title).join(', ')}`];
+  });
+  await test('T47', 'Tìm kiếm để trống', 'HTTP 400', async () => {
+    const r = await call('GET', '/search?q=');
+    return [r.status === 400, `HTTP ${r.status} ${r.data.message || ''}`];
+  });
+  await test('T48', 'Tìm bằng ảnh với vector sai kích thước', 'HTTP 400', async () => {
+    const r = await call('POST', '/search/image', { vector: [1, 2, 3] });
+    return [r.status === 400, `HTTP ${r.status} ${r.data.message || ''}`];
+  });
+  await test('T49', 'Trợ lý AI: chưa cấu hình thì báo rõ, tin nhắn sai thì từ chối', 'HTTP 503 AI_NOT_CONFIGURED hoặc 400', async () => {
+    const enabled = (await call('GET', '/assistant/status')).data.data.enabled;
+    const r = enabled
+      ? await call('POST', '/assistant/chat', { messages: [{ role: 'assistant', content: 'x' }] })
+      : await call('POST', '/assistant/chat', { messages: [{ role: 'user', content: 'chào' }] });
+    const ok = enabled ? r.status === 400 : r.status === 503 && r.data.code === 'AI_NOT_CONFIGURED';
+    return [ok, `${enabled ? 'đã bật' : 'chưa bật'} · HTTP ${r.status} ${r.data.code || r.data.message || ''}`];
+  });
+  await test('T50', 'Quản trị viên sửa từ khóa AI của sản phẩm', 'Lưu được, tìm theo từ khóa mới ra sản phẩm', async () => {
+    const id = (await call('GET', '/products?limit=1')).data.data[0].id;
+    const product = (await call('GET', `/products/${id}`)).data.data;
+    const keyword = 'kiemthutukhoaai';
+    await call('PUT', `/products/${id}`, { ...product, ai_keywords: `${product.ai_keywords || ''}, ${keyword}` }, A);
+    const saved = (await call('GET', `/products/${id}`)).data.data.ai_keywords || '';
+    const found = (await search(keyword, '&mode=keyword')).data.results.some((p) => p.id === id);
+    await call('PUT', `/products/${id}`, { ...product }, A); // trả lại như cũ
+    return [saved.includes(keyword) && found, `lưu: ${saved.includes(keyword) ? 'có' : 'không'}, tìm thấy: ${found ? 'có' : 'không'}`];
+  });
+
   const pass = results.filter((r) => r.ok).length;
   console.log(`\nKết quả: ${pass}/${results.length} ca đạt`);
   require('fs').writeFileSync(__dirname + '/api-test-result.json', JSON.stringify(results, null, 2));

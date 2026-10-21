@@ -40,6 +40,9 @@ services:
       PORT: 3000
       TZ: Asia/Ho_Chi_Minh
       TRUST_PROXY_HOPS: 2   # Caddy -> Nginx -> API
+      WEB_BASE_URL: http://web   # tìm bằng ảnh: lấy ảnh bìa sản phẩm qua Nginx
+    volumes:
+      - model_cache:/app/.cache/models   # mô hình AI tải một lần (~250MB)
     depends_on:
       db:
         condition: service_healthy
@@ -69,5 +72,6 @@ services:
 
 volumes:
   db_data:
+  model_cache:
   caddy_data:
   caddy_config:
