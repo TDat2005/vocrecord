@@ -3,6 +3,8 @@
 FROM node:20-alpine AS build
 WORKDIR /app
 COPY DiaNhac/package*.json ./
+# transformers.js kéo theo onnxruntime-node; frontend chỉ dùng bản WebAssembly nên không cần tải bản CUDA.
+ENV ONNXRUNTIME_NODE_INSTALL=skip
 RUN npm ci
 COPY DiaNhac/ ./
 RUN npm run build

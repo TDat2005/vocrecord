@@ -27,6 +27,7 @@
 - [Tính Năng Nổi Bật](#-tính-năng-nổi-bật)
   - [1. Dành Cho Khách Hàng (Storefront)](#1-dành-cho-khách-hàng-storefront)
   - [2. Quản Trị Hệ Thống (Admin Panel)](#2-quản-trị-hệ-thống-admin-panel)
+  - [3. Trợ Lý Mua Sắm AI & Tìm Kiếm Thông Minh](#3-trợ-lý-mua-sắm-ai--tìm-kiếm-thông-minh)
 - [Kiến Trúc & Công Nghệ](#-kiến-trúc--công-nghệ)
 - [Cấu Trúc Thư Mục](#-cấu-trúc-thư-mục)
 - [Hướng Dẫn Cài Đặt & Chạy Ứng Dụng](#-hướng-dẫn-cài-đặt--chạy-ứng-dụng)
@@ -99,6 +100,22 @@
 - **Mã Giảm Giá (Discount Vouchers)**: Quản lý mã khuyến mãi, phần trăm chiết khấu hoặc giảm tiền mặt cố định.
 - **Phân Quyền Nhân Sự**: Quản lý tài khoản nhân viên và phân chia quyền hạn chặt chẽ (Admin / Nhân viên).
 
+### 3. Trợ Lý Mua Sắm AI & Tìm Kiếm Thông Minh
+
+| Tính năng | Cách làm | Chi phí |
+| :--- | :--- | :--- |
+| **Tìm kiếm thông minh** (`/search`, ô tìm kiếm trên header) | Tách điều kiện cứng (giá "dưới 800k", "1tr2", loại, còn hàng) → BM25 tiếng Việt có dấu/không dấu + embedding `multilingual-e5-small` → gộp hai bảng xếp hạng bằng Reciprocal Rank Fusion | Miễn phí, chạy cục bộ |
+| **Tìm bằng ảnh bìa** (nút "Tìm bằng ảnh bìa") | Mô hình CLIP chạy ngay trong trình duyệt (Web Worker + WebAssembly), chỉ gửi vector 512 số lên server so với vector ảnh bìa sản phẩm; trình duyệt yếu thì server tự chạy CLIP | Miễn phí, chạy cục bộ |
+| **Trợ lý chat AI** (nút "Trợ lý AI" góc phải) | Claude gọi công cụ (`search_products`, `get_product`, `add_to_cart`, `check_discount`, `get_my_orders`) trên dữ liệu thật, trả lời dạng stream (SSE), tự thêm vào giỏ khi khách yêu cầu | Cần `ANTHROPIC_API_KEY`; không có key thì widget tự chuyển sang tìm kiếm thông minh |
+| **MCP server** (`mcp/`) | Claude Desktop tìm đĩa, xem trước và đặt đơn COD, theo dõi đơn qua REST API của cửa hàng. Hướng dẫn: [`mcp/README.md`](mcp/README.md) | Theo gói Claude của người dùng |
+
+Câu thử: *"nhạc buồn nghe lúc mưa, dưới 800k"*, *"jazz thư giãn quán cà phê"*, *"mâm đĩa cho người mới tầm 5 triệu"*, *"cassette dưới 450k"*.
+
+- Mỗi sản phẩm có ô **Từ khóa cho tìm kiếm AI** (tâm trạng, dịp nghe) trong form quản trị; catalog mẫu đã được điền sẵn (migration `09_ai_search.sql`).
+- Mô hình (~250MB) tải từ Hugging Face ở lần chạy đầu, lưu ở volume `model_cache`; vector sản phẩm lưu trong bảng `SanPhamVector` và tự tính lại khi sản phẩm đổi nội dung.
+- Mô hình chưa tải xong hoặc không tải được: tìm kiếm tự lùi về từ khóa, không báo lỗi cho khách.
+- API: `GET /api/search?q=...&mode=hybrid|semantic|keyword&max_price=&category=`, `GET /api/search/status`, `POST /api/search/image`, `POST /api/assistant/chat` (SSE).
+
 ---
 
 ## 🛠 Kiến Trúc & Công Nghệ
@@ -139,6 +156,7 @@ vocrecord/
 │   │   │   ├── pages/          # Home, Shop, ProductDetail, Cart, Checkout, Account, Admin, OrderDetail...
 │   │   │   ├── hooks/          # useProducts, useChatRoom, useCountdown
 │   │   │   ├── utils/          # api (gọi API), auth (phiên đăng nhập), format, status
+│   │   │   ├── ai/             # Web Worker chạy CLIP trong trình duyệt (tìm bằng ảnh)
 │   │   │   ├── routes.jsx      # Cấu hình định tuyến
 │   │   │   └── config/api.js   # Cấu hình API Endpoint
 │   │   └── styles/             # theme.css (biến màu), shared.css (thành phần chung), pages/*.css
@@ -152,10 +170,13 @@ vocrecord/
 │   │   ├── models/             # Data access models (SanPham, DonHang, TaiKhoan...)
 │   │   ├── routes/             # REST API routes (order, product, payos, shipping, account...)
 │   │   ├── services/           # Nghiệp vụ PayOS, GHN API, Email OTP, WebSocket Chat
+│   │   │   └── ai/             # Tìm kiếm hybrid (BM25 + vector), embedding cục bộ, trợ lý Claude
 │   │   └── index.js            # Server entry point
 │   ├── .env.example            # Mẫu cấu hình môi trường backend
 │   ├── Dockerfile
 │   └── package.json
+│
+├── mcp/                        # MCP server cho Claude Desktop (tìm và đặt đĩa)
 │
 ├── database/                   # Migrations và dữ liệu mẫu MySQL
 │   ├── 01_init_database.sql
@@ -165,6 +186,7 @@ vocrecord/
 │   ├── 05_seed_content_catalog.sql
 │   ├── 06_migrate_shipping_interactions.sql
 │   ├── 07_migrate_chat_and_indexes.sql
+│   ├── 09_ai_search.sql        # Từ khóa AI cho sản phẩm + bảng lưu vector
 │   └── backup_clonevocrecord_latest.sql   # Bản backup đầy đủ dữ liệu mới nhất
 │
 ├── docker-compose.yml          # Cấu hình Docker toàn bộ hệ thống (Web, API, DB)
@@ -241,6 +263,9 @@ Tạo file `server/.env` với các trường thông tin:
 PORT=3000
 NODE_ENV=production
 
+# Trợ lý chat AI (để trống thì widget chuyển sang tìm kiếm thông minh)
+ANTHROPIC_API_KEY=
+
 # Kết nối MySQL Database
 DB_HOST=db
 DB_PORT=3306
@@ -283,6 +308,11 @@ SMTP_FROM_NAME=Vọc Records
 ---
 
 ## 💾 Cơ Sở Dữ Liệu & Sao Lưu (Backup / Restore)
+
+> CSDL đã chạy từ trước (volume có sẵn) không tự chạy migration mới. Sau khi cập nhật lên bản có module AI, nạp thủ công (chạy lại nhiều lần được):
+> ```bash
+> docker compose exec -T db sh -c 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" --default-character-set=utf8mb4 clonevocrecord' < database/09_ai_search.sql
+> ```
 
 File cơ sở dữ liệu mới nhất được đặt tại: `database/backup_clonevocrecord_latest.sql`
 

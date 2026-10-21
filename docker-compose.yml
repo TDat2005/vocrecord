@@ -8,6 +8,12 @@ services:
       - server/.env
       - path: .env
         required: false
+    environment:
+      # Tìm bằng ảnh: API lấy ảnh bìa sản phẩm qua Nginx để tính vector CLIP.
+      WEB_BASE_URL: http://web
+    volumes:
+      # Mô hình AI (~250MB) tải một lần, giữ lại khi tạo lại container.
+      - model_cache:/app/.cache/models
     depends_on:
       db:
         condition: service_healthy
@@ -44,3 +50,4 @@ services:
 
 volumes:
   db_data:
+  model_cache:
