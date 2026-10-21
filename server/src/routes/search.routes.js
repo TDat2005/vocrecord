@@ -9,7 +9,15 @@ const imageLimiter = rateLimit({ windowMs: 60 * 1000, max: 30, message: 'Bạn t
 
 const badRequest = (message) => Object.assign(new Error(message), { status: 400 });
 
+const KINDS = ['vinyl', 'cassette', 'turntable', 'accessory'];
+const priceParam = (value) => {
+    const number = Number(value);
+    return value !== undefined && value !== '' && Number.isFinite(number) && number > 0 ? number : null;
+};
+
 // GET /?q=nhạc buồn nghe lúc mưa dưới 800k&mode=hybrid|keyword|semantic&limit=12
+// Điều kiện có cấu trúc (tùy chọn, ghi đè điều kiện đọc được từ câu): max_price, min_price,
+// category=vinyl|cassette|turntable|accessory, in_stock=1
 router.get('/', async (req, res, next) => {
     try {
         const q = String(req.query.q || '').trim();
@@ -17,7 +25,13 @@ router.get('/', async (req, res, next) => {
         if (q.length > 300) throw badRequest('Nội dung tìm kiếm tối đa 300 ký tự');
         const mode = MODES.includes(req.query.mode) ? req.query.mode : 'hybrid';
         const limit = Math.min(Math.max(Number.parseInt(req.query.limit, 10) || 12, 1), 48);
-        res.json({ success: true, data: await searchProducts(q, { mode, limit }) });
+        const filters = {
+            maxPrice: priceParam(req.query.max_price),
+            minPrice: priceParam(req.query.min_price),
+            kinds: KINDS.includes(req.query.category) ? [req.query.category] : [],
+            inStock: ['1', 'true'].includes(String(req.query.in_stock)) ? true : null,
+        };
+        res.json({ success: true, data: await searchProducts(q, { mode, limit, filters }) });
     } catch (error) {
         next(error);
     }

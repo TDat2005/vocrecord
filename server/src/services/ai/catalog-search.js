@@ -5,7 +5,7 @@ const pool = require('../../config/database');
 const embeddings = require('./embeddings');
 const { Bm25Index } = require('./bm25');
 const { hasDiacritics } = require('./vi-text');
-const { parseQuery, matchesFilters, kindOfCategory } = require('./query-parser');
+const { parseQuery, describeFilters, matchesFilters, kindOfCategory } = require('./query-parser');
 
 // Tìm kiếm kết hợp (hybrid) trên catalog:
 //  1. Tách điều kiện cứng (giá, loại, còn hàng) -> lọc trước.
@@ -203,6 +203,7 @@ async function searchProducts(rawQuery, { mode = 'hybrid', limit = 12, filters =
             const empty = value === null || value === undefined || (Array.isArray(value) && value.length === 0);
             if (!empty) parsed.filters[key] = value;
         }
+        parsed.chips = describeFilters(parsed.filters);
     }
     const products = await loadProducts();
     const byId = new Map(products.map((p) => [p.id, p]));
