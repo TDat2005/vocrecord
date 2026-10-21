@@ -312,7 +312,9 @@ async function warmUp() {
     if (!embeddings.isEnabled() || ['off', 'false', '0'].includes(String(process.env.AI_WARMUP || '').toLowerCase())) return;
     try {
         const products = await loadProducts();
+        await embeddings.load('text');
         await ensureVectors('text', products);
+        await embeddings.load('image');
         await ensureVectors('image', products);
     } catch (error) {
         console.warn('[ai] Khởi động trước chỉ mục thất bại, sẽ thử lại khi có lượt tìm kiếm:', error.message);

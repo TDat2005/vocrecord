@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link, Outlet } from 'react-router';
 import { ArrowRight } from 'lucide-react';
+import { AiAssistant } from '../components/AiAssistant';
 import { Header } from '../components/Header';
 import { ScrollToTop } from '../components/ScrollToTop';
 import { useToast } from '../context/ToastContext';
@@ -93,6 +94,7 @@ export function Root() {
           </div>
         </div>
       </footer>
+      <AiAssistant />
     </div>
   );
 }

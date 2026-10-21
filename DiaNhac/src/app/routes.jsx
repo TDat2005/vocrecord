@@ -20,6 +20,7 @@ import { Login } from './pages/Login';
 import { Register } from './pages/Register';
 import { ForgotPassword } from './pages/ForgotPassword';
 import { Chat } from './pages/Chat';
+import { Search } from './pages/Search';
 
 export const router = createHashRouter([
   {
@@ -28,6 +29,7 @@ export const router = createHashRouter([
     children: [
       { index: true, Component: Home },
       { path: 'shop', Component: Shop },
+      { path: 'search', Component: Search },
       { path: 'product/:id', Component: ProductDetail },
       { path: 'cart', Component: Cart },
       { path: 'checkout', Component: Checkout },

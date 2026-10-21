@@ -43,7 +43,7 @@ export function Header() {
   const handleSearch = (event) => {
     event.preventDefault();
     const keyword = query.trim();
-    if (keyword) navigate(`/shop?search=${encodeURIComponent(keyword)}`);
+    if (keyword) navigate(`/search?q=${encodeURIComponent(keyword)}`);
   };
 
   const handleLogout = () => {
@@ -54,7 +54,7 @@ export function Header() {
   const searchInput = (
     <input
       type="search"
-      placeholder="Tìm đĩa than, nghệ sĩ..."
+      placeholder="Tìm đĩa, nghệ sĩ, tâm trạng..."
       value={query}
       onChange={(event) => setQuery(event.target.value)}
       aria-label="Tìm kiếm sản phẩm"

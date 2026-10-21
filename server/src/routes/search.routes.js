@@ -53,6 +53,7 @@ router.post('/image', imageLimiter, async (req, res, next) => {
         }
         res.json({ success: true, data: await searchByImage(query, { limit }) });
     } catch (error) {
+        if (error.code === 'MODEL_LOADING') return res.status(503).json({ success: false, message: error.message });
         const model = embeddingStatus().image;
         if (error.status === 503 || (!error.status && ['error', 'disabled'].includes(model.status))) {
             return res.status(503).json({ success: false, message: 'Mô hình nhận diện ảnh trên server chưa sẵn sàng. Vui lòng thử lại sau.' });

@@ -17,6 +17,7 @@ export const EMPTY_PRODUCT = {
   package_info: '',
   tracklist: '',
   description: '',
+  ai_keywords: '',
   image: '/images/products/vinyl-01.webp',
 };
 
@@ -47,6 +48,11 @@ export function ProductForm({ initialValues = EMPTY_PRODUCT, submitLabel, submit
           <label className="field">
             <span className="label">Mô tả</span>
             <textarea className="textarea" rows={5} value={form.description || ''} onChange={update('description')} />
+          </label>
+          <label className="field">
+            <span className="label">Từ khóa cho tìm kiếm AI</span>
+            <textarea className="textarea" rows={2} value={form.ai_keywords || ''} onChange={update('ai_keywords')} placeholder="buồn, trời mưa, nghe đêm khuya, quà tặng..." />
+            <span className="help-text">Tâm trạng, dịp nghe, đối tượng phù hợp. Giúp khách tìm ra sản phẩm khi gõ kiểu “nhạc buồn nghe lúc mưa”.</span>
           </label>
           <div className="field-row">
             <label className="field">
