@@ -19,57 +19,7 @@ router.get('/', ...editor, async (req, res, next) => {
 // 2. POST /check — Validate and calculate discount
 router.post('/check', async (req, res, next) => {
     try {
-        const code = req.body.code || '';
-        const cartTotal = parseFloat(req.body.cartTotal) || 0;
-
-        if (!code) {
-            return res.json({ success: false, message: 'Vui lòng nhập mã' });
-        }
-
-        const [rows] = await pool.query("SELECT * FROM MaGiamGia WHERE Code = ?", [code.toUpperCase()]);
-        const discount = rows[0];
-
-        if (!discount) {
-            return res.json({ success: false, message: 'Mã giảm giá không tồn tại' });
-        }
-
-        // Kiem tra han su dung
-        if (discount.NgayHetHan && new Date(discount.NgayHetHan).getTime() < Date.now()) {
-            return res.json({ success: false, message: 'Mã đã hết hạn' });
-        }
-
-        // Kiem tra so luong
-        if (discount.SoLuong > 0 && discount.DaDung >= discount.SoLuong) {
-            return res.json({ success: false, message: 'Mã đã hết lượt sử dụng' });
-        }
-
-        // Kiem tra don hang toi thieu (cột DECIMAL được mysql2 trả về dạng chuỗi nên phải ép sang số)
-        const minimum = Number(discount.DonHangToiThieu) || 0;
-        if (cartTotal < minimum) {
-            return res.json({
-                success: false,
-                message: 'Đơn hàng chưa đạt giá trị tối thiểu ' + minimum.toLocaleString('vi-VN') + 'đ'
-            });
-        }
-
-        // Tinh toan tien giam
-        const value = Number(discount.GiaTri) || 0;
-        let moneyDiscount = discount.LoaiGiamGia === 'percent' ? cartTotal * (value / 100) : value;
-
-        if (moneyDiscount > cartTotal) {
-            moneyDiscount = cartTotal; // Khong giam qua tong tien
-        }
-        moneyDiscount = Math.round(moneyDiscount); // khớp cách server tính khi tạo đơn
-
-        res.json({
-            success: true,
-            data: {
-                code: discount.Code,
-                discountAmount: moneyDiscount
-            },
-            message: 'Áp dụng thành công!'
-        });
-
+        res.json(await DiscountModel.check(req.body.code, req.body.cartTotal));
     } catch (error) {
         next(error);
     }
