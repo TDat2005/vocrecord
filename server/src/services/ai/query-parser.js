@@ -60,7 +60,6 @@ function parseQuery(raw) {
     let folded = foldAccents(original);
     let text = original;
     const filters = { minPrice: null, maxPrice: null, kinds: [], inStock: false };
-    const chips = [];
 
     // Xóa đoạn đã hiểu khỏi cả hai bản (thay bằng khoảng trắng cùng độ dài để vị trí vẫn khớp).
     const consume = (start, end) => {
@@ -96,6 +95,29 @@ function parseQuery(raw) {
             break;
         }
     }
+    for (const [kind, { pattern }] of Object.entries(KINDS)) {
+        let found = false;
+        for (const match of folded.matchAll(pattern)) {
+            found = true;
+            consume(match.index, match.index + match[0].length);
+        }
+        if (found) filters.kinds.push(kind);
+    }
+    // Hỏi về "nhạc/album/ca sĩ" mà không nói loại: chỉ tìm trong đĩa than và cassette, bỏ mâm đĩa, phụ kiện.
+    if (filters.kinds.length === 0 && MUSIC_INTENT.test(folded)) filters.kinds.push(...MUSIC_KINDS);
+
+    for (const match of folded.matchAll(IN_STOCK)) {
+        filters.inStock = true;
+        consume(match.index, match.index + match[0].length);
+    }
+
+    const rest = text.replace(/[,.;:!?()"']+/g, ' ').replace(/\s+/g, ' ').trim();
+    return { original, text: rest, filters, chips: describeFilters(filters) };
+}
+
+// Nhãn hiển thị cho điều kiện lọc ("Giá ≤ 800.000đ", "Đĩa nhạc", "Còn hàng").
+function describeFilters(filters) {
+    const chips = [];
     if (filters.minPrice !== null && filters.maxPrice !== null) {
         chips.push({ type: 'price', label: `Giá ${formatVnd(filters.minPrice)} – ${formatVnd(filters.maxPrice)}` });
     } else if (filters.maxPrice !== null) {
@@ -103,32 +125,11 @@ function parseQuery(raw) {
     } else if (filters.minPrice !== null) {
         chips.push({ type: 'price', label: `Giá ≥ ${formatVnd(filters.minPrice)}` });
     }
-
-    for (const [kind, { label, pattern }] of Object.entries(KINDS)) {
-        let found = false;
-        for (const match of folded.matchAll(pattern)) {
-            found = true;
-            consume(match.index, match.index + match[0].length);
-        }
-        if (found) {
-            filters.kinds.push(kind);
-            chips.push({ type: 'category', label });
-        }
-    }
-    // Hỏi về "nhạc/album/ca sĩ" mà không nói loại: chỉ tìm trong đĩa than và cassette, bỏ mâm đĩa, phụ kiện.
-    if (filters.kinds.length === 0 && MUSIC_INTENT.test(folded)) {
-        filters.kinds.push(...MUSIC_KINDS);
-        chips.push({ type: 'category', label: 'Đĩa nhạc' });
-    }
-
-    for (const match of folded.matchAll(IN_STOCK)) {
-        filters.inStock = true;
-        consume(match.index, match.index + match[0].length);
-    }
+    const isMusicOnly = filters.kinds.length === MUSIC_KINDS.length && MUSIC_KINDS.every((kind) => filters.kinds.includes(kind));
+    if (isMusicOnly) chips.push({ type: 'category', label: 'Đĩa nhạc' });
+    else filters.kinds.forEach((kind) => chips.push({ type: 'category', label: KINDS[kind].label }));
     if (filters.inStock) chips.push({ type: 'stock', label: 'Còn hàng' });
-
-    const rest = text.replace(/[,.;:!?()"']+/g, ' ').replace(/\s+/g, ' ').trim();
-    return { original, text: rest, filters, chips };
+    return chips;
 }
 
 function matchesFilters(product, filters) {
@@ -140,4 +141,4 @@ function matchesFilters(product, filters) {
     return true;
 }
 
-module.exports = { parseQuery, matchesFilters, kindOfCategory, formatVnd };
+module.exports = { parseQuery, describeFilters, matchesFilters, kindOfCategory, formatVnd };
