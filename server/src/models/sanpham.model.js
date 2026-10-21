@@ -54,6 +54,27 @@ class SanPhamModel {
         return result.affectedRows > 0;
     }
 
+    // Từ khóa cho tìm kiếm AI (cột TuKhoaAI, migration 09). Chưa chạy migration thì bỏ qua
+    // thay vì làm hỏng việc xem/sửa sản phẩm.
+    static async getAiKeywords(id) {
+        try {
+            const [rows] = await pool.execute("SELECT TuKhoaAI FROM SanPham WHERE MaSP = ?", [id]);
+            return rows[0] ? rows[0].TuKhoaAI : null;
+        } catch (error) {
+            if (error.code === 'ER_BAD_FIELD_ERROR') return null;
+            throw error;
+        }
+    }
+
+    static async setAiKeywords(id, keywords) {
+        try {
+            const value = String(keywords || '').trim().slice(0, 1000) || null;
+            await pool.execute("UPDATE SanPham SET TuKhoaAI = ? WHERE MaSP = ?", [value, id]);
+        } catch (error) {
+            if (error.code !== 'ER_BAD_FIELD_ERROR') throw error;
+        }
+    }
+
     static async getDanhMucByName(name) {
         const [rows] = await pool.execute("SELECT MaDM FROM DanhMuc WHERE TenDM = ?", [name]);
         return rows[0];

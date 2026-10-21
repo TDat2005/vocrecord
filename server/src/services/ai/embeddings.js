@@ -60,6 +60,20 @@ function getModel(kind) {
     return state.promise;
 }
 
+// Request không chờ quá lâu: lần đầu tải mô hình (hàng trăm MB) hoặc mạng chập chờn thì trả lỗi
+// MODEL_LOADING cho request này, còn việc tải vẫn tiếp tục ở nền cho các lượt sau.
+const WAIT_MS = { text: 20000, image: 45000 };
+function waitForModel(kind) {
+    let timer;
+    const timeout = new Promise((_, reject) => {
+        timer = setTimeout(() => reject(Object.assign(
+            new Error('Mô hình AI đang được tải, vui lòng thử lại sau ít phút'),
+            { code: 'MODEL_LOADING' }
+        )), WAIT_MS[kind]);
+    });
+    return Promise.race([getModel(kind), timeout]).finally(() => clearTimeout(timer));
+}
+
 function normalizeVector(data) {
     const vector = Float32Array.from(data);
     let norm = 0;
@@ -72,7 +86,7 @@ function normalizeVector(data) {
 // e5 cần tiền tố "query: " cho câu hỏi và "passage: " cho tài liệu.
 async function embedTexts(texts, role = 'passage') {
     if (texts.length === 0) return [];
-    const extractor = await getModel('text');
+    const extractor = await waitForModel('text');
     const output = await extractor(texts.map((text) => `${role}: ${text}`), { pooling: 'mean', normalize: true });
     const [count, dims] = output.dims;
     return Array.from({ length: count }, (_, i) => Float32Array.from(output.data.subarray(i * dims, (i + 1) * dims)));
@@ -80,7 +94,7 @@ async function embedTexts(texts, role = 'passage') {
 
 // source: Buffer (ảnh upload hoặc file đọc từ ổ đĩa) hoặc URL http(s).
 async function embedImage(source) {
-    const { lib, processor, model } = await getModel('image');
+    const { lib, processor, model } = await waitForModel('image');
     const image = Buffer.isBuffer(source)
         ? await lib.RawImage.fromBlob(new Blob([source]))
         : await lib.RawImage.read(source);
@@ -109,6 +123,7 @@ function status() {
 
 module.exports = {
     MODELS, embedTexts, embedImage, normalizeVector, cosine, status,
-    preload: (kind) => getModel(kind).then(() => undefined),
+    preload: (kind) => waitForModel(kind).then(() => undefined),
+    load: (kind) => getModel(kind).then(() => undefined), // chờ tải xong hẳn, dùng khi khởi động nền
     isEnabled: () => enabled,
 };

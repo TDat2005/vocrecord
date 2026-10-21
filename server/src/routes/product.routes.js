@@ -33,6 +33,7 @@ router.get('/:id', async (req, res, next) => {
     try {
         const product = await SanPhamModel.getById(req.params.id);
         if (product) {
+            product.ai_keywords = await SanPhamModel.getAiKeywords(product.id);
             res.json({ success: true, data: product });
         } else {
             res.json({ success: false, message: 'Không tìm thấy sản phẩm' });
@@ -67,6 +68,7 @@ router.post('/', ...editor, async (req, res, next) => {
         if (dm) maDM = dm.MaDM;
 
         const id = await SanPhamModel.create(title, artist, genre, price, stock, description, image, year, status, maDM, musicGenre, format, condition, packageInfo, tracklist);
+        if (req.body.ai_keywords !== undefined) await SanPhamModel.setAiKeywords(id, req.body.ai_keywords);
         res.json({ success: true, message: 'Thêm sản phẩm thành công', id });
     } catch (error) {
         next(error);
@@ -103,6 +105,7 @@ router.put('/:id', ...editor, async (req, res, next) => {
         if (dm) maDM = dm.MaDM;
 
         const success = await SanPhamModel.update(id, title, artist, genre, price, stock, description, image, year, status, maDM, musicGenre, format, condition, packageInfo, tracklist);
+        if (success && req.body.ai_keywords !== undefined) await SanPhamModel.setAiKeywords(id, req.body.ai_keywords);
         if (success) {
             res.json({ success: true, message: 'Đã cập nhật sản phẩm' });
         } else {

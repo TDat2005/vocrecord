@@ -19,6 +19,10 @@ export default defineConfig({
       },
     },
   },
+  // Worker chạy CLIP (transformers.js) dùng import động nên phải build dạng ES module.
+  worker: {
+    format: 'es',
+  },
   build: {
     rollupOptions: {
       output: {
