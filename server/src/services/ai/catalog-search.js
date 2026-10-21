@@ -195,8 +195,15 @@ function publicProduct(product) {
 }
 
 // ---------- Tìm kiếm ----------
-async function searchProducts(rawQuery, { mode = 'hybrid', limit = 12 } = {}) {
+// filters: điều kiện có cấu trúc gửi kèm (trợ lý AI truyền max_price, category...), ghi đè điều kiện đọc từ câu.
+async function searchProducts(rawQuery, { mode = 'hybrid', limit = 12, filters = null } = {}) {
     const parsed = parseQuery(rawQuery);
+    if (filters) {
+        for (const [key, value] of Object.entries(filters)) {
+            const empty = value === null || value === undefined || (Array.isArray(value) && value.length === 0);
+            if (!empty) parsed.filters[key] = value;
+        }
+    }
     const products = await loadProducts();
     const byId = new Map(products.map((p) => [p.id, p]));
     const candidates = products.filter((p) => matchesFilters(p, parsed.filters));

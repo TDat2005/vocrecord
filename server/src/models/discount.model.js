@@ -11,6 +11,34 @@ class DiscountModel {
         return rows[0];
     }
 
+    // Kiểm tra mã cho khách (trang giỏ hàng, trợ lý AI): trả về lý do cụ thể khi mã không dùng được.
+    static async check(code, cartTotal) {
+        if (!code) return { success: false, message: 'Vui lòng nhập mã' };
+        const total = parseFloat(cartTotal) || 0;
+        const [rows] = await pool.query("SELECT * FROM MaGiamGia WHERE Code = ?", [String(code).toUpperCase()]);
+        const discount = rows[0];
+
+        if (!discount) return { success: false, message: 'Mã giảm giá không tồn tại' };
+        if (discount.NgayHetHan && new Date(discount.NgayHetHan).getTime() < Date.now()) {
+            return { success: false, message: 'Mã đã hết hạn' };
+        }
+        if (discount.SoLuong > 0 && discount.DaDung >= discount.SoLuong) {
+            return { success: false, message: 'Mã đã hết lượt sử dụng' };
+        }
+        // Cột DECIMAL được mysql2 trả về dạng chuỗi nên phải ép sang số.
+        const minimum = Number(discount.DonHangToiThieu) || 0;
+        if (total < minimum) {
+            return { success: false, message: 'Đơn hàng chưa đạt giá trị tối thiểu ' + minimum.toLocaleString('vi-VN') + 'đ' };
+        }
+
+        const value = Number(discount.GiaTri) || 0;
+        let moneyDiscount = discount.LoaiGiamGia === 'percent' ? total * (value / 100) : value;
+        if (moneyDiscount > total) moneyDiscount = total; // Không giảm quá tổng tiền
+        moneyDiscount = Math.round(moneyDiscount); // khớp cách server tính khi tạo đơn
+
+        return { success: true, data: { code: discount.Code, discountAmount: moneyDiscount }, message: 'Áp dụng thành công!' };
+    }
+
     static async calculateInternalDiscount(code, cartTotal, connection = pool) {
         const [rows] = await connection.execute(
             "SELECT * FROM MaGiamGia WHERE Code = ? LIMIT 1",
