@@ -36,3 +36,7 @@ server/tests/api-test-result.json
 # Bản sao lưu CSDL (chứa dữ liệu người dùng) — không đưa lên GitHub
 database/backup_*.sql
 
+
+# Mô hình AI tải về (transformers.js)
+.cache/
+server/.cache/

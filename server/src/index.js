@@ -39,6 +39,8 @@ app.set('io', io);
 
 // Middleware
 app.use(cors(corsOptions));
+// Tìm bằng ảnh có thể gửi ảnh (base64) lên khi trình duyệt không tự chạy được mô hình: cho phép body lớn hơn.
+app.use('/api/search/image', express.json({ limit: '6mb' }));
 app.use(express.json({ limit: '100kb' }));
 app.use(helmet());
 app.use(morgan('dev'));
@@ -80,6 +82,8 @@ loadRoute('/api/shipping', 'shipping');
 loadRoute('/api/comments', 'comment');
 loadRoute('/api/returns', 'return');
 loadRoute('/api/chat', 'chat');
+loadRoute('/api/search', 'search');
+loadRoute('/api/assistant', 'assistant');
 
 // Error Handler
 app.use(errorMiddleware);
@@ -87,6 +91,8 @@ app.use(errorMiddleware);
 const PORT = process.env.PORT || 3000;
 httpServer.listen(PORT, () => {
     console.log(`Vọc Records API server running on port ${PORT}`);
+    // Tải mô hình tìm kiếm và tính vector ở nền, không chặn việc nhận request.
+    setTimeout(() => require('./services/ai/catalog-search').warmUp(), 1000).unref();
 });
 
 const shutdown = async () => {
