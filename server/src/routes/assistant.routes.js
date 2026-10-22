@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { optionalAuth } = require('../middleware/auth.middleware');
 const { rateLimit } = require('../middleware/rate-limit.middleware');
-const { runAssistant, isConfigured, friendlyError, MODEL } = require('../services/ai/assistant');
+const { runAssistant, isConfigured, isUnavailable, friendlyError, MODEL } = require('../services/ai/assistant');
 
 const chatLimiter = rateLimit({ windowMs: 10 * 60 * 1000, max: 40, message: 'Bạn gửi tin nhắn cho trợ lý quá nhanh. Vui lòng thử lại sau ít phút.' });
 
@@ -29,13 +29,14 @@ function validHistory(messages) {
 
 // POST /chat — { messages: [{ role: 'user'|'assistant', content, products? }] }
 // Trả về Server-Sent Events: text (từng đoạn chữ), tool (đang gọi công cụ), products (thẻ sản phẩm),
-// cart_add (trình duyệt thêm vào giỏ), error, done.
+// cart_add (trình duyệt thêm vào giỏ), error, done. error.fallback = true: dịch vụ AI không trả lời được
+// (hết lượt miễn phí, quá tải, mất mạng) và chưa có chữ nào, trình duyệt chuyển sang tìm kiếm thông minh.
 router.post('/chat', chatLimiter, optionalAuth, async (req, res) => {
     if (!isConfigured()) {
         return res.status(503).json({
             success: false,
             code: 'AI_NOT_CONFIGURED',
-            message: 'Trợ lý AI chưa được bật (thiếu ANTHROPIC_API_KEY trên server).',
+            message: 'Trợ lý AI chưa được bật (thiếu GEMINI_API_KEY trên server).',
         });
     }
     const history = validHistory(req.body && req.body.messages);
@@ -47,13 +48,13 @@ router.post('/chat', chatLimiter, optionalAuth, async (req, res) => {
         'Content-Type': 'text/event-stream; charset=utf-8',
         'Cache-Control': 'no-cache, no-transform',
         Connection: 'keep-alive',
-        'X-Accel-Buffering': 'no', // Nginx không gom dữ liệu, chữ hiện ra ngay khi Claude viết
+        'X-Accel-Buffering': 'no', // Nginx không gom dữ liệu, chữ hiện ra ngay khi mô hình viết
     });
     res.flushHeaders();
     const send = (event) => {
         if (!res.writableEnded) res.write(`data: ${JSON.stringify(event)}\n\n`);
     };
-    // Giữ kết nối qua proxy trong lúc Claude suy nghĩ hoặc chạy công cụ.
+    // Giữ kết nối qua proxy trong lúc mô hình suy nghĩ hoặc chạy công cụ.
     const keepAlive = setInterval(() => {
         if (!res.writableEnded) res.write(': ping\n\n');
     }, 15000);
@@ -68,7 +69,7 @@ router.post('/chat', chatLimiter, optionalAuth, async (req, res) => {
     } catch (error) {
         if (!abort.signal.aborted) {
             console.error('[assistant]', error);
-            send({ type: 'error', message: friendlyError(error) });
+            send({ type: 'error', message: friendlyError(error), fallback: isUnavailable(error) && !error.textSent });
         }
     } finally {
         clearInterval(keepAlive);

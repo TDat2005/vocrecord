@@ -6,7 +6,7 @@ import { formatDate, formatPrice, toDateInputValue } from '../../utils/format';
 import { Badge, Modal } from '../ui';
 import { PageHeader } from './PageHeader';
 
-const EMPTY_FORM = { MaGG: '', Code: '', LoaiGiamGia: 'percent', GiaTri: '', DonHangToiThieu: '', SoLuong: '', NgayHetHan: '' };
+const EMPTY_FORM = { MaGG: '', Code: '', LoaiGiamGia: 'percent', GiaTri: '', DonHangToiThieu: '', SoLuong: '', GioiHanMoiKhach: 1, NgayHetHan: '' };
 
 function discountState(discount) {
   if (discount.NgayHetHan && new Date(discount.NgayHetHan).getTime() < Date.now()) return { label: 'Hết hạn', tone: 'neutral' };
@@ -87,6 +87,11 @@ function DiscountFormModal({ initial, onClose, onSaved }) {
             <input className="input" type="number" min={0} required value={form.SoLuong} onChange={update('SoLuong')} placeholder="100" />
             <span className="help-text">Nhập 0 nếu không giới hạn.</span>
           </label>
+          <label className="field">
+            <span className="label">Mỗi khách dùng tối đa</span>
+            <input className="input" type="number" min={0} required value={form.GioiHanMoiKhach} onChange={update('GioiHanMoiKhach')} placeholder="1" />
+            <span className="help-text">Tính trên đơn không bị hủy. 0 = không giới hạn.</span>
+          </label>
         </div>
         <label className="field">
           <span className="label">Ngày hết hạn</span>
@@ -131,6 +136,7 @@ export function Discounts() {
     GiaTri: Number(discount.GiaTri),
     DonHangToiThieu: Number(discount.DonHangToiThieu),
     SoLuong: discount.SoLuong,
+    GioiHanMoiKhach: discount.GioiHanMoiKhach ?? 1,
     // MySQL trả DATETIME dạng ISO ("2026-12-31T00:00:00.000Z"), input date cần "YYYY-MM-DD".
     NgayHetHan: toDateInputValue(discount.NgayHetHan),
   });
@@ -154,7 +160,7 @@ export function Discounts() {
                     <td className="font-semibold">{discount.Code}</td>
                     <td>{discount.LoaiGiamGia === 'percent' ? `${Number(discount.GiaTri)}%` : formatPrice(discount.GiaTri)}</td>
                     <td className="is-numeric">{formatPrice(discount.DonHangToiThieu)}</td>
-                    <td className="is-numeric">{discount.DaDung} / {Number(discount.SoLuong) > 0 ? discount.SoLuong : '∞'}</td>
+                    <td className="is-numeric">{discount.DaDung} / {Number(discount.SoLuong) > 0 ? discount.SoLuong : '∞'}<div className="text-xs text-muted">mỗi khách {Number(discount.GioiHanMoiKhach ?? 1) > 0 ? discount.GioiHanMoiKhach ?? 1 : '∞'}</div></td>
                     <td className="nowrap">{discount.NgayHetHan ? formatDate(discount.NgayHetHan) : 'Không giới hạn'}</td>
                     <td><Badge tone={state.tone}>{state.label}</Badge></td>
                     <td>

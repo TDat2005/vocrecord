@@ -1,0 +1,248 @@
+/* ============================================
+   Thu mua & ký gửi đĩa cũ: trang Bán đĩa, tab tài khoản, trang quản trị
+   ============================================ */
+
+.tradein-steps {
+  overflow-x: auto;
+  padding: 1rem 1.25rem;
+}
+
+.tradein-options {
+  display: grid;
+  gap: 1rem;
+  margin: 1rem 0;
+}
+
+@media (min-width: 720px) {
+  .tradein-options {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.tradein-option {
+  display: grid;
+  gap: 0.5rem;
+  align-content: start;
+}
+
+.tradein-layout {
+  display: grid;
+  gap: 1rem;
+  align-items: start;
+  margin-bottom: 1rem;
+}
+
+@media (min-width: 960px) {
+  .tradein-layout {
+    grid-template-columns: minmax(0, 1fr) 22rem;
+  }
+
+  .tradein-summary {
+    position: sticky;
+    top: calc(var(--header-height) + 1rem);
+  }
+}
+
+.tradein-summary {
+  display: grid;
+  gap: 0.75rem;
+}
+
+/* Ô chọn ảnh */
+.tradein-uploads {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.tradein-upload {
+  position: relative;
+  width: 6rem;
+  height: 6rem;
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--color-bg-muted);
+}
+
+.tradein-upload img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.tradein-upload--add {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  border: 1px dashed var(--color-border-strong);
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.tradein-upload--add:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-text);
+}
+
+.tradein-upload__tag {
+  position: absolute;
+  left: 0.25rem;
+  bottom: 0.25rem;
+  padding: 0 0.375rem;
+  border-radius: var(--radius-sm);
+  background: rgba(26, 26, 26, 0.7);
+  color: #fff;
+  font-size: 0.6875rem;
+}
+
+.tradein-upload__remove {
+  position: absolute;
+  top: 0.25rem;
+  right: 0.25rem;
+  background: var(--color-surface);
+}
+
+/* Một đĩa trong yêu cầu */
+.tradein-item,
+.tradein-appraisal {
+  display: grid;
+  gap: 1rem;
+}
+
+@media (min-width: 640px) {
+  .tradein-item,
+  .tradein-appraisal {
+    grid-template-columns: 9rem minmax(0, 1fr);
+  }
+}
+
+.tradein-item__photos {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.375rem;
+  align-content: start;
+}
+
+.tradein-item__photo {
+  display: block;
+  aspect-ratio: 1;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--color-bg-muted);
+}
+
+.tradein-item__photo--main {
+  grid-column: 1 / -1;
+}
+
+.tradein-item__photo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.tradein-item__body {
+  display: grid;
+  gap: 0.625rem;
+  align-content: start;
+}
+
+.tradein-item__title {
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.tradein-ai {
+  display: grid;
+  gap: 0.375rem;
+  padding: 0.75rem;
+  border-radius: var(--radius);
+  background: var(--tone-info-bg);
+  color: var(--color-text);
+}
+
+.tradein-ai__title {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--tone-info-text);
+}
+
+.tradein-ai__defects {
+  margin: 0;
+  padding-left: 1.125rem;
+  font-size: 0.8125rem;
+  color: var(--color-text-muted);
+}
+
+.tradein-prices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.5rem;
+}
+
+.tradein-prices > div {
+  display: grid;
+  gap: 0.125rem;
+}
+
+.tradein-prices__label {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+}
+
+.tradein-prices__value {
+  font-weight: 600;
+}
+
+.tradein-prices__offer {
+  padding-left: 1.5rem;
+  border-left: 1px solid var(--color-border);
+}
+
+.tradein-apply {
+  justify-self: start;
+}
+
+.tradein-datetime {
+  width: auto;
+}
+
+/* Ví tín dụng */
+.tradein-wallet {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.tradein-wallet__balance {
+  font-size: 1.5rem;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.tradein-thumb {
+  width: 2.75rem;
+  height: 2.75rem;
+  flex-shrink: 0;
+  border-radius: var(--radius-sm);
+  object-fit: cover;
+  background: var(--color-bg-muted);
+}
+
+.table__row--clickable {
+  cursor: pointer;
+}
+
+.table__row--clickable:hover {
+  background: var(--color-surface-hover);
+}
+
+/* Huy hiệu trên thẻ sản phẩm và khối tình trạng ở trang chi tiết */
+.used-condition {
+  display: grid;
+  gap: 0.25rem;
+}

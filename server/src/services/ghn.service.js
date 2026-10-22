@@ -187,6 +187,8 @@ class GHNService {
             });
         } catch (err) {
             console.warn('GHN cancelOrder API failed:', err.message);
+            // Môi trường thật: báo lỗi để cửa hàng biết vận đơn chưa bị hủy (trước đây giả vờ hủy thành công).
+            if (process.env.GHN_ENV === 'production') throw err;
             return codes.map(code => ({ order_code: code, result: true }));
         }
     }

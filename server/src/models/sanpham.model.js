@@ -2,7 +2,7 @@ const pool = require('../config/database');
 
 class SanPhamModel {
     static async getAll(category = null, search = null, limit = 100, offset = 0) {
-        let query = "SELECT sp.MaSP as id, sp.TenSP as title, sp.NgheSi as artist, COALESCE(dm.TenDM, sp.TheLoai) as genre, COALESCE(dm.TenDM, sp.TheLoai) as category, sp.TheLoaiNhac as music_genre, sp.GiaBan as price, sp.SoLuongTon as stock, sp.MoTa as description, sp.HinhAnh as image, sp.DinhDang as format, sp.TinhTrangDia as `condition`, sp.QuyCach as package_info, sp.Tracklist as tracklist, sp.NamPhatHanh as year, sp.TinhTrang as status FROM SanPham sp LEFT JOIN DanhMuc dm ON sp.MaDM = dm.MaDM WHERE sp.TinhTrang <> 'ngungkinhdoanh'";
+        let query = "SELECT sp.MaSP as id, sp.TenSP as title, sp.NgheSi as artist, COALESCE(dm.TenDM, sp.TheLoai) as genre, COALESCE(dm.TenDM, sp.TheLoai) as category, sp.TheLoaiNhac as music_genre, sp.GiaBan as price, sp.SoLuongTon as stock, sp.MoTa as description, sp.HinhAnh as image, sp.DinhDang as format, sp.TinhTrangDia as `condition`, sp.QuyCach as package_info, sp.Tracklist as tracklist, sp.NamPhatHanh as year, sp.TinhTrang as status, sp.LoaiHang as item_type FROM SanPham sp LEFT JOIN DanhMuc dm ON sp.MaDM = dm.MaDM WHERE sp.TinhTrang <> 'ngungkinhdoanh'";
         const params = [];
 
         if (category) {
@@ -22,7 +22,7 @@ class SanPhamModel {
 
     static async getById(id) {
         const [rows] = await pool.execute(
-            "SELECT sp.MaSP as id, sp.TenSP as title, sp.NgheSi as artist, COALESCE(dm.TenDM, sp.TheLoai) as genre, COALESCE(dm.TenDM, sp.TheLoai) as category, sp.TheLoaiNhac as music_genre, sp.GiaBan as price, sp.SoLuongTon as stock, sp.MoTa as description, sp.HinhAnh as image, sp.DinhDang as format, sp.TinhTrangDia as `condition`, sp.QuyCach as package_info, sp.Tracklist as tracklist, sp.NamPhatHanh as year, sp.TinhTrang as status FROM SanPham sp LEFT JOIN DanhMuc dm ON sp.MaDM = dm.MaDM WHERE sp.MaSP = ?",
+            "SELECT sp.MaSP as id, sp.TenSP as title, sp.NgheSi as artist, COALESCE(dm.TenDM, sp.TheLoai) as genre, COALESCE(dm.TenDM, sp.TheLoai) as category, sp.TheLoaiNhac as music_genre, sp.GiaBan as price, sp.SoLuongTon as stock, sp.MoTa as description, sp.HinhAnh as image, sp.DinhDang as format, sp.TinhTrangDia as `condition`, sp.QuyCach as package_info, sp.Tracklist as tracklist, sp.NamPhatHanh as year, sp.TinhTrang as status, sp.LoaiHang as item_type FROM SanPham sp LEFT JOIN DanhMuc dm ON sp.MaDM = dm.MaDM WHERE sp.MaSP = ?",
             [id]
         );
         return rows[0];
@@ -38,10 +38,20 @@ class SanPhamModel {
 
     static async update(id, title, artist, genre, price, stock, desc, image, year, status, maDM = 1, musicGenre = null, format = null, condition = null, packageInfo = null, tracklist = null) {
         const [result] = await pool.execute(
-            "UPDATE SanPham SET TenSP=?, NgheSi=?, GiaBan=?, SoLuongTon=?, MoTa=?, HinhAnh=?, MaDM=?, TheLoai=?, TheLoaiNhac=?, DinhDang=?, TinhTrangDia=?, QuyCach=?, Tracklist=?, NamPhatHanh=?, TinhTrang=? WHERE MaSP=?",
-            [title, artist, price, stock, desc, image, maDM, genre, musicGenre, format, condition, packageInfo, tracklist, year, status, id]
+            "UPDATE SanPham SET TenSP=?, NgheSi=?, GiaBan=?, MoTa=?, HinhAnh=?, MaDM=?, TheLoai=?, TheLoaiNhac=?, DinhDang=?, TinhTrangDia=?, QuyCach=?, Tracklist=?, NamPhatHanh=?, TinhTrang=? WHERE MaSP=?",
+            [title, artist, price, desc, image, maDM, genre, musicGenre, format, condition, packageInfo, tracklist, year, status, id]
         );
+        if (result.affectedRows > 0 && stock !== null && stock !== undefined) {
+            await pool.execute('UPDATE SanPham SET SoLuongTon = ? WHERE MaSP = ?', [stock, id]);
+        }
         return result.affectedRows > 0;
+    }
+
+    // Điều chỉnh tồn kho theo chênh lệch (tránh ghi đè số đã bán trong lúc admin mở form sửa).
+    static async adjustStock(id, delta) {
+        await pool.execute('UPDATE SanPham SET SoLuongTon = GREATEST(SoLuongTon + ?, 0) WHERE MaSP = ?', [delta, id]);
+        const [rows] = await pool.execute('SELECT SoLuongTon FROM SanPham WHERE MaSP = ?', [id]);
+        return rows[0] ? Number(rows[0].SoLuongTon) : null;
     }
 
     // Xóa mềm: không DELETE vì ChiTietDonHang/ChiTietPhieuNhap/YeuCauTraHangChiTiet tham chiếu SanPham.

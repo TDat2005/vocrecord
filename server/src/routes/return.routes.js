@@ -3,6 +3,7 @@ const router = express.Router();
 const pool = require('../config/database');
 const DonHangModel = require('../models/donhang.model');
 const GHNService = require('../services/ghn.service');
+const Wallet = require('../services/tradein/wallet');
 const { authenticate, requireRole } = require('../middleware/auth.middleware');
 
 const editor = [authenticate, requireRole('admin', 'nhanvien')];
@@ -38,7 +39,8 @@ router.post('/', authenticate, async (req, res, next) => {
 
         const order = await DonHangModel.getById(orderId, customerId);
         if (!order) return res.status(404).json({ success: false, message: 'Không tìm thấy đơn hàng của bạn' });
-        const ageDays = (Date.now() - new Date(order.NgayDat).getTime()) / 86400000;
+        // Hạn đổi trả tính từ ngày giao thành công (đơn giao chậm không bị mất quyền đổi trả); đơn cũ chưa có thì lấy ngày đặt.
+        const ageDays = (Date.now() - new Date(order.NgayHoanThanh || order.NgayDat).getTime()) / 86400000;
         const allowedGHNStatuses = ['delivered', 'damage', 'lost', 'returned', 'return', 'return_fail'];
         if (order.TrangThai !== 'hoanthanh' && !allowedGHNStatuses.includes(String(order.GHNTrangThai || '').toLowerCase())) {
             return res.status(400).json({ success: false, message: 'Chỉ có thể yêu cầu trả hàng sau khi đơn đã giao hoặc được GHN ghi nhận lỗi' });
@@ -136,6 +138,7 @@ router.put('/:id/status', ...editor, async (req, res, next) => {
             await GHNService.returnOrder([item.ghn_order_code]);
         }
 
+        let walletRefund = 0;
         connection = await pool.getConnection();
         await connection.beginTransaction();
         const [lockedRows] = await connection.query(
@@ -156,10 +159,25 @@ router.put('/:id/status', ...editor, async (req, res, next) => {
             const [details] = await connection.query('SELECT MaSP, SoLuong FROM YeuCauTraHangChiTiet WHERE MaYCT=?', [req.params.id]);
             for (const detail of details) await connection.query('UPDATE SanPham SET SoLuongTon=SoLuongTon+? WHERE MaSP=?', [detail.SoLuong, detail.MaSP]);
             await connection.query('UPDATE YeuCauTraHang SET DaNhapKho=TRUE WHERE MaYCT=?', [req.params.id]);
+            // Đơn có phần trả bằng ví tín dụng: hoàn phần đó vào ví (không quá số tiền hoàn của yêu cầu),
+            // phần còn lại cửa hàng hoàn như cũ (chuyển khoản / tiền mặt). Chạy cùng lúc nhập kho nên chỉ một lần.
+            const [[order]] = await connection.query('SELECT MaKH, SoTienTinDung FROM DonHang WHERE MaDH=?', [item.order_id]);
+            const [[refunded]] = await connection.query("SELECT COALESCE(SUM(SoTien), 0) AS total FROM GiaoDichTinDung WHERE MaDH=? AND Loai='hoantra'", [item.order_id]);
+            const refundTotal = refundAmount !== null ? refundAmount : Number(item.refund_amount);
+            walletRefund = Math.max(0, Math.min(refundTotal, Number(order.SoTienTinDung || 0) - Number(refunded.total)));
+            if (walletRefund > 0) {
+                await Wallet.addEntry(connection, { customerId: order.MaKH, amount: walletRefund, type: 'hoantra', orderId: item.order_id, note: `Hoàn tiền trả hàng YCT-${req.params.id}` });
+            }
         }
         await connection.commit();
         connection.release();
-        res.json({ success: result.affectedRows > 0, message: 'Đã cập nhật yêu cầu trả hàng' });
+        res.json({
+            success: result.affectedRows > 0,
+            message: walletRefund > 0
+                ? `Đã cập nhật yêu cầu trả hàng. Đã hoàn ${walletRefund.toLocaleString('vi-VN')}đ vào ví tín dụng của khách${walletRefund < (refundAmount ?? Number(item.refund_amount)) ? ', phần còn lại hoàn theo cách thông thường' : ''}.`
+                : 'Đã cập nhật yêu cầu trả hàng',
+            wallet_refund: walletRefund,
+        });
     } catch (error) {
         if (connection) { await connection.rollback(); connection.release(); }
         next(error);

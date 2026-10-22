@@ -108,6 +108,10 @@ export function Search() {
 
   const data = result.data;
   const bestImageMatch = image?.data?.results?.[0];
+  const secondImageMatch = image?.data?.results?.[1];
+  // Ảnh chụp thật (nghiêng, lóa) thường chỉ giống bìa gốc ~0,75, nhưng bỏ xa các bìa khác.
+  const imageMatched = bestImageMatch && (bestImageMatch.match.similarity >= 0.8
+    || (bestImageMatch.match.similarity >= 0.7 && bestImageMatch.match.similarity - (secondImageMatch?.match.similarity || 0) >= 0.1));
 
   return (
     <div className="page">
@@ -154,7 +158,7 @@ export function Search() {
                 {image.error && <p className="text-critical text-sm">{image.error}</p>}
                 {image.data && (
                   <p className="text-muted text-sm">
-                    {bestImageMatch && bestImageMatch.match.similarity >= 0.8
+                    {imageMatched
                       ? <>Khớp nhất: <strong>{bestImageMatch.title}</strong> ({percent(bestImageMatch.match.similarity)}). </>
                       : 'Không có bìa nào trùng hẳn, đây là các sản phẩm có bìa giống nhất. '}
                     <span className="badge badge--info">

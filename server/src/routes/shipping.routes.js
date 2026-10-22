@@ -64,7 +64,7 @@ const syncLocalOrder = async (orderCode, data = {}) => {
     try {
         await connection.beginTransaction();
         const [rows] = await connection.execute(
-            `SELECT dh.MaDH, dh.TrangThai, tt.TrangThaiTT
+            `SELECT dh.MaDH, dh.TrangThai, dh.PhuongThucThanhToan, tt.TrangThaiTT
              FROM DonHang dh LEFT JOIN ThanhToan tt ON tt.MaDH = dh.MaDH
              WHERE dh.MaDonGHN = ? FOR UPDATE`,
             [orderCode]
@@ -88,10 +88,10 @@ const syncLocalOrder = async (orderCode, data = {}) => {
             await connection.execute('UPDATE DonHang SET TrangThai = ? WHERE MaDH = ?', [target, orderId]);
             changedTo = target;
 
-            if (target === 'hoanthanh') await DonHangModel.markCodPaid(orderId, connection);
+            if (target === 'hoanthanh') await DonHangModel.onCompleted(orderId, connection);
             if (target === 'dahuy') {
                 if (RESTOCK_GHN_STATUSES.includes(ghnStatus)) await DonHangModel.releaseCancelledOrder(orderId, connection);
-                if (order.TrangThaiTT === 'dathanhtoan') {
+                if (order.TrangThaiTT === 'dathanhtoan' && order.PhuongThucThanhToan !== 'tindung') {
                     await connection.execute("UPDATE DonHang SET TrangThaiHoanTien = 'choxuly' WHERE MaDH = ? AND TrangThaiHoanTien = 'khongapdung'", [orderId]);
                 } else {
                     await connection.execute("UPDATE ThanhToan SET TrangThaiTT = 'thatbai', NgayTT = NOW() WHERE MaDH = ? AND TrangThaiTT = 'chuathanhtoan'", [orderId]);
@@ -125,6 +125,11 @@ const createShipment = async (orderId, shipping = {}) => {
     if (!['daxacnhan', 'dangchuanbihang'].includes(order.TrangThai)) {
         const error = new Error('Chỉ tạo được vận đơn GHN khi đơn ở trạng thái "Đã xác nhận" hoặc "Đang chuẩn bị".');
         error.status = 400;
+        throw error;
+    }
+    if (order.PhuongThucThanhToan === 'payos' && order.TrangThaiTT !== 'dathanhtoan') {
+        const error = new Error('Đơn PayOS chưa thanh toán, không tạo vận đơn (shipper sẽ không thu tiền).');
+        error.status = 409;
         throw error;
     }
     const items = await DonHangModel.getOrderItems(orderId);
@@ -212,6 +217,10 @@ router.post('/webhook/ghn', async (req, res, next) => {
         // Webhook GHN không có chữ ký. Nếu đặt GHN_WEBHOOK_TOKEN, hãy khai báo URL webhook dạng
         // /api/shipping/webhook/ghn?token=<GHN_WEBHOOK_TOKEN> trên trang GHN để chặn request giả mạo.
         const expectedToken = process.env.GHN_WEBHOOK_TOKEN;
+        // Môi trường thật bắt buộc có token: không có thì ai biết URL cũng báo "đã giao" giả được (đơn COD bị ghi đã thu tiền).
+        if (!expectedToken && process.env.GHN_ENV === 'production') {
+            return res.status(503).json({ success: false, message: 'Chưa cấu hình GHN_WEBHOOK_TOKEN' });
+        }
         if (expectedToken && req.query.token !== expectedToken) {
             return res.status(401).json({ success: false, message: 'Webhook token không hợp lệ' });
         }

@@ -41,6 +41,8 @@ app.set('io', io);
 app.use(cors(corsOptions));
 // Tìm bằng ảnh có thể gửi ảnh (base64) lên khi trình duyệt không tự chạy được mô hình: cho phép body lớn hơn.
 app.use('/api/search/image', express.json({ limit: '6mb' }));
+// Thẩm định đĩa cũ: khách gửi tối đa 4 ảnh (base64) cho mỗi đĩa.
+app.use('/api/tradein/items', express.json({ limit: '10mb' }));
 app.use(express.json({ limit: '100kb' }));
 app.use(helmet());
 app.use(morgan('dev'));
@@ -84,6 +86,7 @@ loadRoute('/api/returns', 'return');
 loadRoute('/api/chat', 'chat');
 loadRoute('/api/search', 'search');
 loadRoute('/api/assistant', 'assistant');
+loadRoute('/api/tradein', 'tradein');
 
 // Error Handler
 app.use(errorMiddleware);

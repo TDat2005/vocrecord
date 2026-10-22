@@ -151,7 +151,10 @@ export function ProductDetail() {
   const category = String(record.category || record.genre || '');
   const isMusicRecord = category.includes('Vinyl') || category.includes('Cassette');
   const tracklist = String(record.tracklist || '').split(/\r?\n/).map((track) => track.trim()).filter(Boolean);
-  const youtubeUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(`${record.artist || ''} ${record.title} full album`)}`;
+  // Đĩa nhạc: tìm album để nghe thử (bỏ hậu tố "(Cassette)" trong tên); mâm đĩa, phụ kiện: tìm video đánh giá.
+  const albumTitle = String(record.title || '').replace(/\s*\((cassette|vinyl|lp)\)\s*$/i, '');
+  const youtubeQuery = isMusicRecord ? `${record.artist || ''} ${albumTitle} full album` : `${record.artist || ''} ${record.title} review`;
+  const youtubeUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(youtubeQuery.trim())}`;
 
   const handleAddToCart = () => {
     addToCart(record, quantity);
@@ -196,9 +199,19 @@ export function ProductDetail() {
             <p className="product__price">{formatPrice(record.price)}</p>
             <div>
               {inStock
-                ? <Badge tone="success">Còn hàng · {stock} sản phẩm</Badge>
+                ? <Badge tone="success">{record.item_type === 'cu' ? 'Còn 1 bản duy nhất' : `Còn hàng · ${stock} sản phẩm`}</Badge>
                 : <Badge tone="dark">{discontinued ? 'Ngừng kinh doanh' : 'Hết hàng'}</Badge>}
             </div>
+
+            {record.item_type === 'cu' && (
+              <div className="banner banner--warning used-condition">
+                <p className="banner__title">Đĩa cũ đã qua thẩm định · {record.condition}</p>
+                <p className="text-sm">
+                  Vọc Records kiểm tra, vệ sinh và chấm tình trạng theo thang Goldmine trước khi bán. Ảnh là ảnh chụp thật của chính bản này.{' '}
+                  <Link to="/sell#grading" className="link-underline">Xem thang chấm</Link>
+                </p>
+              </div>
+            )}
 
             {inStock && (
               <div className="field">
@@ -221,7 +234,7 @@ export function ProductDetail() {
                 <Heart size={18} fill={saved ? 'currentColor' : 'none'} /> {saved ? 'Đã lưu yêu thích' : 'Thêm vào yêu thích'}
               </button>
               <a href={youtubeUrl} target="_blank" rel="noopener noreferrer" className="product__link">
-                <Youtube size={18} /> Nghe thử trên YouTube
+                <Youtube size={18} /> {isMusicRecord ? 'Nghe thử trên YouTube' : 'Xem đánh giá trên YouTube'}
               </a>
             </div>
 

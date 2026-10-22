@@ -123,7 +123,8 @@ export function Inventory() {
   const handleSave = async (values) => {
     setSaving(true);
     try {
-      const data = await api.put(`/products/${editing.id}`, values);
+      // stock_before: server chỉ áp dụng phần tồn kho admin sửa, không ghi đè số vừa bán trong lúc mở form.
+      const data = await api.put(`/products/${editing.id}`, { ...values, stock_before: editing.stock });
       if (data.success) {
         toast.success('Đã cập nhật sản phẩm');
         setEditing(null);

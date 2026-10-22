@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link, Navigate, useParams } from 'react-router';
-import { ArrowLeft, Check, Truck } from 'lucide-react';
+import { ArrowLeft, Check, QrCode, Truck } from 'lucide-react';
 import { useToast } from '../context/ToastContext';
 import { useOrderCancel } from '../components/OrderCancel';
+import { PayosPaymentModal } from '../components/PayosPaymentModal';
 import { SafeImage } from '../components/SafeImage';
 import { EmptyState, StatusBadge } from '../components/ui';
 import { api, NETWORK_ERROR } from '../utils/api';
@@ -123,6 +124,8 @@ export function OrderDetail() {
   const [orderData, setOrderData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [returnRequest, setReturnRequest] = useState(null);
+  const [paying, setPaying] = useState(false);
+  const toast = useToast();
 
   const loadOrder = useCallback(async () => {
     try {
@@ -161,7 +164,7 @@ export function OrderDetail() {
     );
   }
 
-  const { info, items } = orderData;
+  const { info, items, payment } = orderData;
   const isCanceled = info.TrangThai === 'dahuy';
   const refundInfo = parseRefundInfo(info.ThongTinHoanTien);
   const itemsSubtotal = items.reduce((sum, item) => sum + Number(item.DonGia) * Number(item.SoLuong), 0);
@@ -186,6 +189,16 @@ export function OrderDetail() {
               : <button type="button" className="btn btn--secondary" onClick={() => startCancel(info)} disabled={canceling}>Hủy đơn hàng</button>
           )}
         </div>
+
+        {payment && (
+          <div className="banner banner--warning order-pay-banner">
+            <div>
+              <p className="banner__title">Đơn hàng đang chờ thanh toán VietQR</p>
+              <p className="text-sm">Thanh toán trước {formatDateTime(payment.expiresAt)}, quá hạn đơn sẽ tự hủy.</p>
+            </div>
+            <button type="button" className="btn btn--primary" onClick={() => setPaying(true)}><QrCode size={16} /> Thanh toán ngay</button>
+          </div>
+        )}
 
         <div className="order-layout">
           <div className="stack">
@@ -240,7 +253,10 @@ export function OrderDetail() {
                   <div className="summary-row"><span className="text-muted">Giảm giá ({info.CodeGiamGia})</span><span>−{formatPrice(info.SoTienGiam)}</span></div>
                 )}
                 <div className="summary-row"><span className="text-muted">Phí vận chuyển</span><span>{formatPrice(info.PhiVanChuyen)}</span></div>
-                <div className="summary-row summary-row--total"><span>Tổng cộng</span><span>{formatPrice(info.TongTien)}</span></div>
+                {Number(info.SoTienTinDung) > 0 && (
+                  <div className="summary-row"><span className="text-muted">Trả bằng ví tín dụng</span><span>−{formatPrice(info.SoTienTinDung)}</span></div>
+                )}
+                <div className="summary-row summary-row--total"><span>{Number(info.SoTienTinDung) > 0 ? 'Còn phải thanh toán' : 'Tổng cộng'}</span><span>{formatPrice(info.TongTien)}</span></div>
               </div>
             </section>
 
@@ -263,7 +279,7 @@ export function OrderDetail() {
             <section className="card">
               <h2 className="card__title">Thanh toán</h2>
               <dl className="description-list card__body-gap">
-                <dt>Phương thức</dt><dd>{paymentMethod === 'payos' ? 'Chuyển khoản VietQR (PayOS)' : 'Thanh toán khi nhận hàng'}</dd>
+                <dt>Phương thức</dt><dd>{paymentMethod === 'payos' ? 'Chuyển khoản VietQR (PayOS)' : paymentMethod === 'tindung' ? 'Ví tín dụng Vọc Records' : 'Thanh toán khi nhận hàng'}</dd>
                 <dt>Trạng thái</dt><dd><StatusBadge status={getPaymentStatus(info.TrangThaiTT || 'chuathanhtoan')} /></dd>
                 {info.TrangThaiHoanTien && info.TrangThaiHoanTien !== 'khongapdung' && (
                   <><dt>Hoàn tiền</dt><dd><StatusBadge status={getRefundStatus(info.TrangThaiHoanTien)} /></dd></>
@@ -274,6 +290,14 @@ export function OrderDetail() {
         </div>
       </div>
       {refundModal}
+      {paying && payment && (
+        <PayosPaymentModal
+          payment={payment}
+          onPaid={() => { setPaying(false); toast.success('Đã nhận thanh toán, cảm ơn bạn!'); loadOrder(); }}
+          onExpired={(message) => { setPaying(false); toast.error(message); loadOrder(); }}
+          onClose={() => { setPaying(false); loadOrder(); }}
+        />
+      )}
     </div>
   );
 }

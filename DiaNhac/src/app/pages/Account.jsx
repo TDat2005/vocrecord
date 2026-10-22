@@ -6,6 +6,7 @@ import { useToast } from '../context/ToastContext';
 import { AddressFormModal } from '../components/AddressForm';
 import { useOrderCancel } from '../components/OrderCancel';
 import { ProductCard } from '../components/ProductCard';
+import { MyTradeIns } from '../components/tradein/MyTradeIns';
 import { Badge, EmptyState, StatusBadge } from '../components/ui';
 import { api, NETWORK_ERROR } from '../utils/api';
 import { clearSession, getToken, saveSession, useCurrentUser } from '../utils/auth';
@@ -19,6 +20,7 @@ const TABS = [
   { id: 'profile', label: 'Thông tin cá nhân' },
   { id: 'password', label: 'Đổi mật khẩu' },
   { id: 'wishlist', label: 'Yêu thích' },
+  { id: 'tradein', label: 'Bán & ký gửi' },
 ];
 const TAB_IDS = TABS.map((tab) => tab.id);
 const TAB_KEY = 'voc_account_tab';
@@ -73,12 +75,16 @@ function OrdersTab({ orders, profileName, onChanged }) {
               </div>
               <div className="order-card__body">
                 <span className="text-muted text-sm">
-                  {order.PhuongThucThanhToan === 'payos' ? 'VietQR (PayOS)' : 'Thanh toán khi nhận hàng'}
+                  {order.PhuongThucThanhToan === 'payos' ? 'VietQR (PayOS)' : order.PhuongThucThanhToan === 'tindung' ? 'Ví tín dụng' : 'Thanh toán khi nhận hàng'}
+                  {Number(order.SoTienTinDung) > 0 && order.PhuongThucThanhToan !== 'tindung' && ` · ví trả ${formatPrice(order.SoTienTinDung)}`}
                   {order.MaDonGHN && ` · Mã vận đơn GHN ${order.MaDonGHN}`}
                 </span>
                 <span className="font-semibold">{formatPrice(order.TongTien)}</span>
               </div>
               <div className="button-group">
+                {order.PhuongThucThanhToan === 'payos' && order.TrangThai === 'choxacnhan' && order.TrangThaiTT === 'chuathanhtoan' && (
+                  <Link to={`/order/${order.MaDH}`} className="btn btn--primary btn--sm">Thanh toán ngay</Link>
+                )}
                 <Link to={`/order/${order.MaDH}`} className="btn btn--secondary btn--sm">Xem chi tiết</Link>
                 {CANCELLABLE_STATUSES.includes(order.TrangThai) && !order.MaDonGHN && (
                   <button type="button" className="btn btn--plain btn--plain-critical text-sm" onClick={() => startCancel(order)} disabled={canceling}>
@@ -444,6 +450,7 @@ export function Account() {
           {activeTab === 'profile' && <ProfileTab profile={profile} onSaved={loadProfile} />}
           {activeTab === 'password' && <PasswordTab />}
           {activeTab === 'wishlist' && <WishlistTab />}
+          {activeTab === 'tradein' && <MyTradeIns />}
         </div>
       </div>
     </div>

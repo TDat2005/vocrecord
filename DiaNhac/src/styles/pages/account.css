@@ -322,3 +322,13 @@ button.stat-card:hover {
   text-align: center;
   font-variant-numeric: tabular-nums;
 }
+
+/* Đơn PayOS chờ thanh toán: nút thanh toán tiếp ở chi tiết đơn */
+.order-pay-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}

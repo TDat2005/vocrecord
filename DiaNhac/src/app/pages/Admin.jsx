@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, Navigate, useNavigate, useSearchParams } from 'react-router';
 import {
   ExternalLink, FileText, Home, LogOut, Menu, MessageCircle, MessagesSquare, Package,
-  PackagePlus, RotateCcw, ShoppingCart, Tag, UserCog, Users, X,
+  PackagePlus, Recycle, RotateCcw, ShoppingCart, Tag, UserCog, Users, X,
 } from 'lucide-react';
 import { EmptyState } from '../components/ui';
 import { Dashboard } from '../components/admin/Dashboard';
@@ -13,6 +13,7 @@ import { Customers } from '../components/admin/Customers';
 import { ContentManager } from '../components/admin/ContentManager';
 import { Comments } from '../components/admin/Comments';
 import { Returns } from '../components/admin/Returns';
+import { TradeIns } from '../components/admin/TradeIns';
 import { AdminChat } from '../components/admin/AdminChat';
 import { Discounts } from '../components/admin/Discounts';
 import { Employees } from '../components/admin/Employees';
@@ -27,6 +28,7 @@ const NAV_GROUPS = [
       { id: 'orders', label: 'Đơn hàng', icon: ShoppingCart, component: Orders },
       { id: 'customers', label: 'Khách hàng', icon: Users, component: Customers },
       { id: 'returns', label: 'Trả hàng / khiếu nại', icon: RotateCcw, component: Returns },
+      { id: 'tradein', label: 'Thu mua & ký gửi', icon: Recycle, component: TradeIns },
     ],
   },
   {

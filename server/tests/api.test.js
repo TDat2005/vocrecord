@@ -334,6 +334,77 @@ const ship = { address: '12 Thái Hà, Đống Đa, Hà Nội', nguoiNhan: 'Khá
     return [saved.includes(keyword) && found, `lưu: ${saved.includes(keyword) ? 'có' : 'không'}, tìm thấy: ${found ? 'có' : 'không'}`];
   });
 
+  // ---- Thu mua & ký gửi đĩa cũ, ví tín dụng ----
+  // Không gọi AI: chỉ kiểm tra chính sách, phân quyền, kiểm tra dữ liệu vào và ví.
+  await test('T51', 'Xem chính sách thu mua (công khai)', 'Có thang Goldmine 7 mức và tỷ lệ hoa hồng', async () => {
+    const d = (await call('GET', '/tradein/policy')).data.data;
+    return [d.grades.length === 7 && d.grades[0].code === 'M' && d.commissionRate > 0 && d.buyoutRate > 0,
+      `${d.grades.map((g) => g.code).join(' ')} · thu mua ${d.buyoutRate * 100}% · hoa hồng ${d.commissionRate * 100}%`];
+  });
+  await test('T52', 'Gửi tệp không phải ảnh để thẩm định', 'HTTP 400', async () => {
+    const r = await call('POST', '/tradein/items', { title: 'Kiểm thử', photos: ['data:image/png;base64,aGVsbG8='] }, K);
+    return [r.status === 400, `HTTP ${r.status} ${r.data.message || ''}`];
+  });
+  await test('T53', 'Gửi yêu cầu thu mua không có đĩa', 'HTTP 400', async () => {
+    const r = await call('POST', '/tradein', { item_ids: [] }, K);
+    return [r.status === 400, `HTTP ${r.status} ${r.data.message || ''}`];
+  });
+  await test('T54', 'Khách xem danh sách thu mua của cửa hàng', 'HTTP 403', async () => {
+    const r = await call('GET', '/tradein/manage', null, K);
+    return [r.status === 403, `HTTP ${r.status}`];
+  });
+  await test('T55', 'Khách xem ví tín dụng', 'Có số dư và lịch sử', async () => {
+    const d = (await call('GET', '/tradein/wallet', null, K)).data.data;
+    return [typeof d.balance === 'number' && Array.isArray(d.history), `số dư ${d.balance}đ · ${d.history.length} giao dịch`];
+  });
+  await test('T56', 'Nhân viên xem báo cáo thu mua, ký gửi', 'Có số liệu thu mua, ký gửi, tín dụng, độ khớp AI', async () => {
+    const d = (await call('GET', '/tradein/report', null, N)).data.data;
+    return [Boolean(d.buyout && d.consignment && d.credit && d.ai_accuracy),
+      `thu mua ${d.buyout.items} đĩa · ký gửi đang bán ${d.consignment.selling} · tín dụng ${d.credit.outstanding}đ`];
+  });
+
+  // ---- Hồi quy các lỗi nghiệp vụ đã sửa (kiểm thử nghiệp vụ 22/10/2026) ----
+  const inStockProduct = async () => (await call('GET', '/products?limit=100')).data.data.find((p) => Number(p.stock) > 2 && p.item_type !== 'cu');
+  await test('T57', 'Tạo mã giảm giá 150%', 'HTTP 400 (tối đa 100%)', async () => {
+    const r = await call('POST', '/discounts', { Code: `QA150${Date.now() % 100000}`, LoaiGiamGia: 'percent', GiaTri: 150 }, A);
+    return [r.status === 400, `HTTP ${r.status} ${r.data.message || ''}`];
+  });
+  await test('T58', 'Đặt hàng với mã giảm giá đã hết hạn', 'HTTP 409, báo mã hết hạn', async () => {
+    const code = `QAEXP${Date.now() % 100000}`;
+    await call('POST', '/discounts', { Code: code, LoaiGiamGia: 'percent', GiaTri: 10, NgayHetHan: '2020-01-01' }, A);
+    const { id } = await inStockProduct();
+    const r = await call('POST', '/orders', { ...ship, items: [{ id, qty: 1 }], discountCode: code }, K);
+    if (r.data.order_id) await call('PUT', `/orders/${r.data.order_id}/cancel`, {}, K);
+    return [r.status === 409 && /hết hạn/.test(r.data.message || ''), `HTTP ${r.status} ${r.data.message || ''}`];
+  });
+  await test('T59', 'Sửa sản phẩm chỉ gửi tên', 'Giá và tồn kho giữ nguyên', async () => {
+    const product = await inStockProduct();
+    await call('PUT', `/products/${product.id}`, { title: product.title }, A);
+    const after = (await call('GET', `/products/${product.id}`)).data.data;
+    return [Number(after.price) === Number(product.price) && Number(after.stock) === Number(product.stock),
+      `giá ${Number(product.price)} -> ${Number(after.price)} · tồn ${product.stock} -> ${after.stock}`];
+  });
+  await test('T60', 'Tạo sản phẩm giá 0đ, tồn kho âm', 'HTTP 400', async () => {
+    const r = await call('POST', '/products', { title: 'Kiểm thử giá 0', price: 0, stock: -1 }, A);
+    return [r.status === 400, `HTTP ${r.status} ${r.data.message || ''}`];
+  });
+  await test('T61', 'Đặt hàng với số điện thoại người nhận sai', 'HTTP 400', async () => {
+    const { id } = await inStockProduct();
+    const r = await call('POST', '/orders', { ...ship, sdtNhan: '12345', items: [{ id, qty: 1 }] }, K);
+    if (r.data.order_id) await call('PUT', `/orders/${r.data.order_id}/cancel`, {}, K);
+    return [r.status === 400, `HTTP ${r.status} ${r.data.message || ''}`];
+  });
+  await test('T62', 'Admin khóa khách đang đăng nhập', 'Phiên của khách bị chặn ngay (HTTP 401), mở khóa thì dùng lại được', async () => {
+    const customer = (await call('GET', '/admin/customers', null, A)).data.data.find((c) => c.email === 'khach2@vocrecord.local');
+    if (!customer) return [true, 'bỏ qua: không có tài khoản khach2@vocrecord.local'];
+    const token = await login(['khach2@vocrecord.local', ACC.customer[1]]);
+    await call('PUT', `/admin/customers/${customer.id}/status`, { active: false }, A);
+    const locked = await call('GET', '/account/profile', null, token);
+    await call('PUT', `/admin/customers/${customer.id}/status`, { active: true }, A);
+    const unlocked = await call('GET', '/account/profile', null, token);
+    return [locked.status === 401 && unlocked.status === 200, `khi khóa HTTP ${locked.status} · mở khóa HTTP ${unlocked.status}`];
+  });
+
   const pass = results.filter((r) => r.ok).length;
   console.log(`\nKết quả: ${pass}/${results.length} ca đạt`);
   require('fs').writeFileSync(__dirname + '/api-test-result.json', JSON.stringify(results, null, 2));

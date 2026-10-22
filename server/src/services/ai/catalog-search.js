@@ -28,26 +28,29 @@ let schemaCache = null;
 async function detectSchema() {
     if (schemaCache && (schemaCache.complete || Date.now() - schemaCache.checkedAt < 60 * 1000)) return schemaCache;
     const [rows] = await pool.query(
-        `SELECT TABLE_NAME AS tableName FROM INFORMATION_SCHEMA.COLUMNS
+        `SELECT TABLE_NAME AS tableName, COLUMN_NAME AS columnName FROM INFORMATION_SCHEMA.COLUMNS
          WHERE TABLE_SCHEMA = DATABASE()
-           AND ((TABLE_NAME = 'SanPham' AND COLUMN_NAME = 'TuKhoaAI') OR (TABLE_NAME = 'SanPhamVector' AND COLUMN_NAME = 'MaSP'))`
+           AND ((TABLE_NAME = 'SanPham' AND COLUMN_NAME IN ('TuKhoaAI', 'LoaiHang')) OR (TABLE_NAME = 'SanPhamVector' AND COLUMN_NAME = 'MaSP'))`
     );
-    const hasKeywords = rows.some((row) => row.tableName === 'SanPham');
-    const hasVectorTable = rows.some((row) => row.tableName === 'SanPhamVector');
+    const columns = new Set(rows.map((row) => `${row.tableName}.${row.columnName}`));
+    const hasKeywords = columns.has('SanPham.TuKhoaAI');
+    const hasItemType = columns.has('SanPham.LoaiHang');
+    const hasVectorTable = columns.has('SanPhamVector.MaSP');
     if (!schemaCache && !(hasKeywords && hasVectorTable)) {
         console.warn('[ai] Chưa chạy database/09_ai_search.sql: tìm kiếm vẫn chạy nhưng thiếu từ khóa AI và không lưu vector.');
     }
-    schemaCache = { hasKeywords, hasVectorTable, complete: hasKeywords && hasVectorTable, checkedAt: Date.now() };
+    schemaCache = { hasKeywords, hasItemType, hasVectorTable, complete: hasKeywords && hasItemType && hasVectorTable, checkedAt: Date.now() };
     return schemaCache;
 }
 
 async function loadProducts() {
-    const { hasKeywords } = await detectSchema();
+    const { hasKeywords, hasItemType } = await detectSchema();
     const [rows] = await pool.query(
         `SELECT sp.MaSP AS id, sp.TenSP AS title, sp.NgheSi AS artist, COALESCE(dm.TenDM, sp.TheLoai) AS category,
                 sp.TheLoaiNhac AS music_genre, sp.GiaBan AS price, sp.SoLuongTon AS stock, sp.MoTa AS description,
                 sp.HinhAnh AS image, sp.DinhDang AS format, sp.NamPhatHanh AS year,
-                ${hasKeywords ? 'sp.TuKhoaAI' : 'NULL'} AS ai_keywords
+                ${hasKeywords ? 'sp.TuKhoaAI' : 'NULL'} AS ai_keywords, ${hasItemType ? 'sp.LoaiHang' : "'moi'"} AS item_type,
+                sp.TinhTrangDia AS \`condition\`
          FROM SanPham sp LEFT JOIN DanhMuc dm ON sp.MaDM = dm.MaDM
          WHERE sp.TinhTrang <> 'ngungkinhdoanh'`
     );

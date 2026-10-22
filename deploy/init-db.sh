@@ -4,7 +4,7 @@
 set -euo pipefail
 : "${MYSQL:?Thiếu biến MYSQL}"
 $MYSQL --default-character-set=utf8mb4 < database/01_init_database.sql
-for f in database/0[2-9]_*.sql database/migrate_*.sql; do
+for f in database/0[2-9]_*.sql database/migrate_*.sql database/1[0-9]_*.sql; do
   echo "-> $f"
   $MYSQL --default-character-set=utf8mb4 clonevocrecord < "$f"
 done

@@ -16,6 +16,9 @@ export function ProductCard({ product, quickAdd = false, badge }) {
   const soldOut = Number(product.stock) <= 0;
   const saved = isInWishlist(product.id);
   const url = `/product/${product.id}`;
+  // Đĩa cũ: hiện mức tình trạng đĩa ("Đĩa VG+ · Bìa VG" -> "Đĩa cũ VG+").
+  const usedGrade = product.item_type === 'cu' ? (/Đĩa\s+(\S+)/.exec(product.condition || '') || [])[1] : null;
+  const usedBadge = product.item_type === 'cu' ? `Đĩa cũ${usedGrade ? ` ${usedGrade}` : ''}` : null;
 
   const handleWishlist = async () => {
     try {
@@ -38,6 +41,8 @@ export function ProductCard({ product, quickAdd = false, badge }) {
         <SafeImage src={product.image} alt={product.title} />
         {soldOut ? (
           <span className="product-card__badge"><Badge tone="dark">Hết hàng</Badge></span>
+        ) : usedBadge ? (
+          <span className="product-card__badge"><Badge tone="warning">{usedBadge}</Badge></span>
         ) : badge ? (
           <span className="product-card__badge"><Badge>{badge}</Badge></span>
         ) : null}
