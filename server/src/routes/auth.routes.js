@@ -7,6 +7,7 @@ const pool = require('../config/database');
 const TaiKhoanModel = require('../models/taikhoan.model');
 const KhachHangModel = require('../models/khachhang.model');
 const OtpModel = require('../models/otp.model');
+const { isPhone, PHONE_MESSAGE } = require('../utils/validate');
 const EmailService = require('../services/email.service');
 const { rateLimit } = require('../middleware/rate-limit.middleware');
 
@@ -126,6 +127,7 @@ router.post('/verify-register-otp', verifyLimiter, async (req, res, next) => {
         if (password.length < 6) {
             return res.json({ success: false, message: 'Mật khẩu phải có ít nhất 6 ký tự.' });
         }
+        if (phone && !isPhone(phone)) return res.json({ success: false, message: PHONE_MESSAGE });
 
         const validOtp = await OtpModel.verify(email, otpCode, 'dangky');
         if (!validOtp) {

@@ -1,4 +1,5 @@
 const pool = require('../config/database');
+const TradeInOrderHooks = require('../services/tradein/order-hooks');
 
 class DonHangModel {
     static async create(customerId, total, address, nguoiNhan, sdtNhan, ghiChu, phuongThucThanhToan, codeGiamGia = null, soTienGiam = 0, connection = pool) {
@@ -43,7 +44,7 @@ class DonHangModel {
     }
 
     static async getById(orderId, customerId = null) {
-        let q = "SELECT dh.*, tt.HinhThuc as ThanhToanHinhThuc, tt.TrangThaiTT, tt.MaGiaoDich FROM DonHang dh LEFT JOIN ThanhToan tt ON dh.MaDH = tt.MaDH WHERE dh.MaDH = ?";
+        let q = "SELECT dh.*, tt.HinhThuc as ThanhToanHinhThuc, tt.TrangThaiTT, tt.MaGiaoDich, tt.DuLieuThanhToan FROM DonHang dh LEFT JOIN ThanhToan tt ON dh.MaDH = tt.MaDH WHERE dh.MaDH = ?";
         const params = [orderId];
         if (customerId) {
             q += " AND dh.MaKH = ?";
@@ -102,7 +103,8 @@ class DonHangModel {
     }
 
     /**
-     * Trả lại tài nguyên khi một đơn bị hủy: cộng lại tồn kho và trả lại 1 lượt dùng mã giảm giá.
+     * Trả lại tài nguyên khi một đơn bị hủy: cộng lại tồn kho, trả lại 1 lượt dùng mã giảm giá
+     * và hoàn phần đã trả bằng ví tín dụng.
      * Chỉ gọi đúng một lần cho mỗi đơn, ngay sau câu UPDATE chuyển đơn sang 'dahuy' có affectedRows > 0.
      */
     static async releaseCancelledOrder(orderId, connection = pool) {
@@ -116,6 +118,18 @@ class DonHangModel {
              WHERE dh.MaDH = ? AND dh.SoTienGiam > 0`,
             [orderId]
         );
+        await TradeInOrderHooks.refundCancelledOrder(orderId, connection);
+    }
+
+    /**
+     * Đơn chuyển sang hoàn thành (nhân viên cập nhật hoặc GHN báo đã giao): ghi nhận tiền COD đã thu
+     * và tính tiền cho người ký gửi nếu đơn có đĩa ký gửi.
+     */
+    static async onCompleted(orderId, connection = pool) {
+        // Ngày giao thành công: hạn đổi trả và doanh thu tính theo ngày này.
+        await connection.execute('UPDATE DonHang SET NgayHoanThanh = COALESCE(NgayHoanThanh, NOW()) WHERE MaDH = ?', [orderId]);
+        await this.markCodPaid(orderId, connection);
+        await TradeInOrderHooks.settleCompletedOrder(orderId, connection);
     }
 
     /** Đơn COD giao thành công nghĩa là shipper đã thu tiền: ghi nhận thanh toán. */

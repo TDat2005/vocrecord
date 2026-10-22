@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const { isPhone, PHONE_MESSAGE } = require('../utils/validate');
 const bcrypt = require('bcryptjs');
 const KhachHangModel = require('../models/khachhang.model');
 const TaiKhoanModel = require('../models/taikhoan.model');
@@ -41,8 +42,10 @@ router.put('/profile', async (req, res, next) => {
         if (!customerId) {
             return res.status(403).json({ success: false, message: 'Tài khoản chưa có hồ sơ khách hàng' });
         }
+        if (!String(fullName).trim()) return res.status(400).json({ success: false, message: 'Vui lòng nhập họ tên.' });
+        if (String(phone).trim() && !isPhone(phone)) return res.status(400).json({ success: false, message: PHONE_MESSAGE });
 
-        await KhachHangModel.updateProfile(customerId, fullName, phone, address);
+        await KhachHangModel.updateProfile(customerId, String(fullName).trim(), String(phone).trim(), address);
         return res.json({ success: true, message: 'Cập nhật thông tin thành công' });
     } catch (error) {
         return res.json({ success: false, message: 'Lỗi cập nhật: ' + error.message });
@@ -72,6 +75,7 @@ router.post('/addresses', async (req, res, next) => {
         if (!nguoiNhan || !soDienThoai || !diaChi) {
             return res.json({ success: false, message: 'Vui lòng điền đầy đủ tên người nhận, số điện thoại và địa chỉ.' });
         }
+        if (!isPhone(soDienThoai)) return res.status(400).json({ success: false, message: PHONE_MESSAGE });
 
         const newId = await KhachHangModel.createAddress(customerId, {
             nguoiNhan: nguoiNhan.trim(),

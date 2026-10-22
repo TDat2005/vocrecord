@@ -4,7 +4,7 @@ const pool = require('../config/database');
 const NhanVienModel = require('../models/nhanvien.model');
 const TaiKhoanModel = require('../models/taikhoan.model');
 const bcrypt = require('bcryptjs');
-const { authenticate, requireRole } = require('../middleware/auth.middleware');
+const { authenticate, requireRole, forgetAccountStatus } = require('../middleware/auth.middleware');
 
 router.use(authenticate, requireRole('admin'));
 
@@ -110,6 +110,7 @@ router.put('/:id/toggle', async (req, res, next) => {
         }
 
         const success = await NhanVienModel.toggleStatus(accountId, status);
+        forgetAccountStatus(accountId); // khóa có hiệu lực ngay với phiên đang đăng nhập
         if (success) {
             return res.json({ success: true, message: status === 1 ? 'Đã mở khóa tài khoản!' : 'Đã khóa tài khoản!' });
         } else {

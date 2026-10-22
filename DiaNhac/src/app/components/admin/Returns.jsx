@@ -22,7 +22,7 @@ export function Returns() {
     try {
       const data = await api.put(`/returns/${item.id}/status`, { status });
       if (data.success) {
-        toast.success(`Đã chuyển yêu cầu sang "${getReturnStatus(status).label}"`);
+        toast.success(data.wallet_refund ? data.message : `Đã chuyển yêu cầu sang "${getReturnStatus(status).label}"`);
         load();
       } else {
         toast.error(data.message || 'Không thể cập nhật yêu cầu');

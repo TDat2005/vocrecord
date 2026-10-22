@@ -159,16 +159,18 @@ export function AiAssistant() {
     toast.success(`Đã thêm ${quantity > 1 ? `${quantity} × ` : ''}"${product.title}" vào giỏ hàng`);
   };
 
-  // Server chưa có API key: vẫn trả lời bằng tìm kiếm thông minh (không cần LLM).
-  const answerWithSearch = async (text) => {
+  // Không dùng được mô hình AI (server chưa có API key, hết lượt miễn phí, mất mạng):
+  // vẫn trả lời bằng tìm kiếm thông minh (không cần LLM).
+  const answerWithSearch = async (text, reason = 'Trợ lý trò chuyện AI chưa được bật ở cửa hàng này') => {
     const data = await api.get(`/search?q=${encodeURIComponent(text)}&limit=6`);
     const results = data.success ? data.data.results : [];
     updateLast((m) => ({
       ...m,
       status: null,
+      error: false,
       content: results.length
-        ? 'Trợ lý trò chuyện AI chưa được bật ở cửa hàng này, nhưng mình đã tìm được các sản phẩm phù hợp:'
-        : 'Trợ lý trò chuyện AI chưa được bật ở cửa hàng này, và mình chưa tìm thấy sản phẩm khớp. Bạn thử mô tả khác nhé.',
+        ? `${reason}, nhưng mình đã tìm được các sản phẩm phù hợp:`
+        : `${reason}, và mình chưa tìm thấy sản phẩm khớp. Bạn thử mô tả khác nhé.`,
       products: results,
     }));
   };
@@ -220,6 +222,8 @@ export function AiAssistant() {
           updateLast((m) => ({ ...m, products: mergeProducts(m.products, event.items) }));
         } else if (event.type === 'cart_add') {
           addProduct(event.product, event.quantity);
+        } else if (event.type === 'error' && event.fallback) {
+          await answerWithSearch(content, event.message.replace(/\.$/, ''));
         } else if (event.type === 'error') {
           updateLast((m) => ({ ...m, status: null, error: !m.content, content: m.content ? `${m.content}\n\n${event.message}` : event.message }));
         }

@@ -45,6 +45,45 @@ const COMMENT_STATUS = {
   an: { label: 'Đã ẩn', tone: 'neutral' },
 };
 
+// Thu mua & ký gửi đĩa cũ
+const TRADEIN_STATUS = {
+  moi: { label: 'Chờ cửa hàng xem', tone: 'attention' },
+  chonhandia: { label: 'Đã hẹn nhận đĩa', tone: 'info' },
+  dangthamdinh: { label: 'Đang thẩm định', tone: 'info' },
+  chokhachxacnhan: { label: 'Chờ khách xác nhận giá', tone: 'warning' },
+  hoanthanh: { label: 'Hoàn thành', tone: 'success' },
+  khachtuchoi: { label: 'Khách không bán', tone: 'neutral' },
+  tuchoi: { label: 'Cửa hàng từ chối', tone: 'critical' },
+  dahuy: { label: 'Đã hủy', tone: 'neutral' },
+};
+
+const CONSIGNMENT_STATUS = {
+  dangban: { label: 'Đang bán', tone: 'info' },
+  daban: { label: 'Đã bán, chờ chi trả', tone: 'warning' },
+  dathanhtoan: { label: 'Đã chi trả', tone: 'success' },
+  datra: { label: 'Đã trả lại đĩa', tone: 'neutral' },
+};
+
+// Các bước chính của yêu cầu thu mua (hiện trên thanh tiến trình).
+export const TRADEIN_STEPS = ['Gửi yêu cầu', 'Hẹn nhận đĩa', 'Thẩm định', 'Báo giá', 'Hoàn thành'];
+export const TRADEIN_STEP_INDEX = { moi: 0, chonhandia: 1, dangthamdinh: 2, chokhachxacnhan: 3, hoanthanh: 5 };
+
+export const PAYOUT_METHODS = {
+  tindung: 'Ví tín dụng Vọc Records',
+  chuyenkhoan: 'Chuyển khoản ngân hàng',
+  tienmat: 'Tiền mặt tại cửa hàng',
+};
+
+export const TRADEIN_MODES = { bandut: 'Bán đứt', kygui: 'Ký gửi' };
+
+export const WALLET_ENTRY_TYPES = {
+  thumua: 'Bán đĩa cho cửa hàng',
+  kygui: 'Tiền đĩa ký gửi',
+  thanhtoan: 'Thanh toán đơn hàng',
+  hoantra: 'Hoàn tiền đơn hủy',
+  dieuchinh: 'Điều chỉnh',
+};
+
 export const RETURN_REASONS = {
   hang_loi: 'Hàng bị lỗi',
   sai_san_pham: 'Sai sản phẩm',
@@ -68,6 +107,9 @@ export const getPaymentStatus = lookup(PAYMENT_STATUS);
 export const getRefundStatus = lookup(REFUND_STATUS);
 export const getReturnStatus = lookup(RETURN_STATUS);
 export const getCommentStatus = lookup(COMMENT_STATUS);
+export const getTradeInStatus = lookup(TRADEIN_STATUS);
+export const getConsignmentStatus = lookup(CONSIGNMENT_STATUS);
+export const TRADEIN_STATUS_OPTIONS = Object.entries(TRADEIN_STATUS).map(([value, { label }]) => ({ value, label }));
 
 export const ORDER_STATUS_OPTIONS = Object.entries(ORDER_STATUS).map(([value, { label }]) => ({ value, label }));
 export const RETURN_STATUS_OPTIONS = Object.entries(RETURN_STATUS).map(([value, { label }]) => ({ value, label }));

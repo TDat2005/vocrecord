@@ -1,6 +1,5 @@
 const express = require('express');
 const router = express.Router();
-const axios = require('axios');
 const pool = require('../config/database');
 const DonHangModel = require('../models/donhang.model');
 const KhachHangModel = require('../models/khachhang.model');
@@ -9,6 +8,8 @@ const PayOSService = require('../services/payos.service');
 const EmailService = require('../services/email.service');
 const GHNService = require('../services/ghn.service');
 const { createShipment } = require('./shipping.routes');
+const Wallet = require('../services/tradein/wallet');
+const { isPhone, PHONE_MESSAGE } = require('../utils/validate');
 const { authenticate, requireRole } = require('../middleware/auth.middleware');
 
 const staff = [authenticate, requireRole('admin', 'nhanvien')];
@@ -17,6 +18,7 @@ const staff = [authenticate, requireRole('admin', 'nhanvien')];
 // không có thì lấy theo trang khách đang mở (header Origin), cuối cùng là localhost:8080.
 const appUrl = (req) => (process.env.APP_URL || req.get('origin') || 'http://localhost:8080').replace(/\/+$/, '');
 const withOrderId = (url, orderId) => `${url}${url.includes('?') ? '&' : '?'}order_id=${orderId}`;
+const PAYOS_TIMEOUT_MINUTES = 10; // đơn PayOS chưa thanh toán quá thời gian này thì tự hủy
 
 const expireUnpaidPayosOrders = async () => {
     let connection;
@@ -29,7 +31,7 @@ const expireUnpaidPayosOrders = async () => {
             WHERE dh.PhuongThucThanhToan = 'payos'
               AND dh.TrangThai = 'choxacnhan'
               AND tt.TrangThaiTT = 'chuathanhtoan'
-              AND dh.NgayDat < (NOW() - INTERVAL 10 MINUTE)
+              AND dh.NgayDat < (NOW() - INTERVAL ${PAYOS_TIMEOUT_MINUTES} MINUTE)
         `);
 
         for (const order of expiredOrders) {
@@ -81,6 +83,7 @@ router.post('/', authenticate, async (req, res, next) => {
             maGiaoDich = null,
             saveAddress = false,
             discountCode = null,
+            useCredit = false,
             ghn = {}
         } = req.body;
 
@@ -94,13 +97,17 @@ router.post('/', authenticate, async (req, res, next) => {
         if (!receiverName || !receiverPhone || !receiverAddress) {
             return res.status(400).json({ success: false, message: 'Vui lòng nhập đủ thông tin nhận hàng' });
         }
+        if (!isPhone(receiverPhone)) return res.status(400).json({ success: false, message: PHONE_MESSAGE });
+        if (receiverName.length > 100 || receiverAddress.length > 255) {
+            return res.status(400).json({ success: false, message: 'Tên người nhận tối đa 100 ký tự, địa chỉ tối đa 255 ký tự' });
+        }
 
         const allowedPaymentMethods = ['cod', 'payos'];
         if (!allowedPaymentMethods.includes(phuongThucThanhToan)) {
             return res.status(400).json({ success: false, message: 'Phương thức thanh toán không hợp lệ' });
         }
 
-        const isPayos = (phuongThucThanhToan === 'payos');
+        let isPayos = (phuongThucThanhToan === 'payos');
         const trangThaiThanhToan = 'chuathanhtoan';
 
         connection = await pool.getConnection();
@@ -158,25 +165,48 @@ router.post('/', authenticate, async (req, res, next) => {
             throw totalError;
         }
 
+        // Mã giảm giá kiểm tra lại lúc đặt (khóa dòng mã để hai đơn không cùng dùng lượt cuối).
+        // Mã không còn dùng được thì báo khách, không âm thầm tính giá gốc như trước.
         let soTienGiam = 0;
         if (discountCode) {
-            soTienGiam = await DiscountModel.calculateInternalDiscount(discountCode, subtotal, connection);
+            const discount = await DiscountModel.reserve(discountCode, subtotal, connection, customer_id);
+            if (!discount.ok) {
+                const discountError = new Error(`${discount.message}. Vui lòng bỏ mã giảm giá hoặc chọn mã khác.`);
+                discountError.status = 409;
+                throw discountError;
+            }
+            soTienGiam = discount.amount;
         }
 
         const shippingFee = 30000;
         let totalAfterDiscount = subtotal - soTienGiam + shippingFee;
         if (totalAfterDiscount < 0) totalAfterDiscount = 0;
 
-        const maDH = await DonHangModel.create(customer_id, totalAfterDiscount, address, nguoiNhan, sdtNhan, ghiChu, phuongThucThanhToan, discountCode, soTienGiam, connection);
+        // Trả một phần hoặc toàn bộ bằng ví tín dụng (tiền bán/ký gửi đĩa cũ). TongTien là phần còn phải thu.
+        let creditUsed = 0;
+        let paymentMethod = phuongThucThanhToan;
+        if (useCredit === true) {
+            const balance = await Wallet.getBalance(connection, customer_id, { forUpdate: true });
+            creditUsed = Math.min(balance, totalAfterDiscount);
+            totalAfterDiscount -= creditUsed;
+            if (creditUsed > 0 && totalAfterDiscount === 0) {
+                paymentMethod = 'tindung'; // ví trả hết: không cần PayOS, shipper không thu tiền
+                isPayos = false;
+            }
+        }
+
+        const maDH = await DonHangModel.create(customer_id, totalAfterDiscount, address, nguoiNhan, sdtNhan, ghiChu, paymentMethod, discountCode, soTienGiam, connection);
+
+        if (creditUsed > 0) {
+            await connection.execute('UPDATE DonHang SET SoTienTinDung = ? WHERE MaDH = ?', [creditUsed, maDH]);
+            await Wallet.addEntry(connection, { customerId: customer_id, amount: -creditUsed, type: 'thanhtoan', orderId: maDH, note: `Thanh toán đơn #${maDH}` });
+        }
 
         await connection.execute(
             'UPDATE DonHang SET PhiVanChuyen = ?, GHNProvinceName = ?, GHNWardName = ? WHERE MaDH = ?',
             [shippingFee, ghn?.provinceName || null, ghn?.wardName || null, maDH]
         );
 
-        if (soTienGiam > 0 && discountCode) {
-            await DiscountModel.incrementUsage(discountCode, connection);
-        }
 
         for (const item of normalizedItems) {
             await DonHangModel.addItem(maDH, item.id, item.qty, item.price, connection);
@@ -201,8 +231,13 @@ router.post('/', authenticate, async (req, res, next) => {
             const cancelUrl = withOrderId(process.env.PAYOS_CANCEL_URL || `${appUrl(req)}/payment-result`, maDH);
 
             payosData = await PayOSService.createPaymentLink(orderCode, totalAfterDiscount, "VocRecords DH" + maDH, returnUrl, cancelUrl);
+            // Giữ link + mã QR: khách bấm "Thanh toán sau" vẫn mở lại được trong chi tiết đơn (trong 10 phút).
+            await connection.execute('UPDATE ThanhToan SET DuLieuThanhToan = ? WHERE MaDH = ?', [JSON.stringify({
+                checkoutUrl: payosData.checkoutUrl, qrCode: payosData.qrCode, accountNumber: payosData.accountNumber,
+                accountName: payosData.accountName, bin: payosData.bin, amount: payosData.amount, description: payosData.description,
+            }), maDH]);
         } else {
-            await DonHangModel.createPayment(maDH, totalAfterDiscount, phuongThucThanhToan, trangThaiThanhToan, null, connection);
+            await DonHangModel.createPayment(maDH, totalAfterDiscount, paymentMethod, paymentMethod === 'tindung' ? 'dathanhtoan' : trangThaiThanhToan, null, connection);
         }
 
         await connection.commit();
@@ -307,6 +342,26 @@ router.put('/:id/status', ...staff, async (req, res, next) => {
         if (status === 'dahuy' && order.MaDonGHN && req.user.role !== 'admin') {
             return res.status(403).json({ success: false, message: `Đơn đã có mã vận đơn GHN (${order.MaDonGHN}), chỉ Admin được hủy.` });
         }
+        // Đơn PayOS chưa nhận được tiền chỉ được hủy, không được xác nhận hay giao
+        // (trước đây xác nhận được, vận đơn tạo ra với tiền thu hộ 0đ nên hàng đi mà không thu được tiền).
+        if (order.PhuongThucThanhToan === 'payos' && order.TrangThaiTT !== 'dathanhtoan' && status !== 'dahuy') {
+            return res.status(409).json({ success: false, message: 'Đơn thanh toán qua PayOS chưa nhận được tiền nên chưa thể xác nhận. Chờ khách thanh toán hoặc hủy đơn.' });
+        }
+        // Hủy đơn đã có vận đơn: hủy vận đơn bên GHN trước để shipper không tới lấy hàng.
+        let ghnCancelled = false;
+        if (status === 'dahuy' && order.MaDonGHN && String(order.GHNTrangThai || '').toLowerCase() !== 'cancel') {
+            let result;
+            try {
+                const data = await GHNService.cancelOrder([order.MaDonGHN], 'GHN-CANCEL-OTHER', 'Cửa hàng hủy đơn');
+                result = Array.isArray(data) ? data[0] : data;
+            } catch (error) {
+                return res.status(502).json({ success: false, message: `Không hủy được vận đơn GHN ${order.MaDonGHN}: ${error.message}` });
+            }
+            if (!result || !result.result) {
+                return res.status(409).json({ success: false, message: `GHN không cho hủy vận đơn ${order.MaDonGHN}${result && result.message ? ` (${result.message})` : ''}. Có thể shipper đã lấy hàng.` });
+            }
+            ghnCancelled = true;
+        }
 
         const [staffRows] = await pool.query('SELECT MaNV FROM NhanVien WHERE MaTK = ?', [req.user.id]);
         const employeeId = staffRows[0]?.MaNV || null;
@@ -327,12 +382,15 @@ router.put('/:id/status', ...staff, async (req, res, next) => {
 
         if (status === 'hoanthanh') {
             // Giao thành công đơn COD = shipper đã thu tiền. Trước đây đơn COD hoàn thành vẫn hiện "Chưa thanh toán".
-            await DonHangModel.markCodPaid(orderId, connection);
+            // Đơn có đĩa ký gửi: tính tiền trả người gửi.
+            await DonHangModel.onCompleted(orderId, connection);
         }
 
         if (status === 'dahuy') {
+            if (ghnCancelled) await connection.execute("UPDATE DonHang SET GHNTrangThai = 'cancel', GHNLastSync = NOW() WHERE MaDH = ?", [orderId]);
             await DonHangModel.releaseCancelledOrder(orderId, connection);
-            if (order.TrangThaiTT === 'dathanhtoan') {
+            // Đơn trả hết bằng ví tín dụng đã được hoàn vào ví ở releaseCancelledOrder, không cần hoàn tiền ngân hàng.
+            if (order.TrangThaiTT === 'dathanhtoan' && order.PhuongThucThanhToan !== 'tindung') {
                 // Đã thanh toán online: chuyển sang chờ hoàn tiền, nhân viên liên hệ khách lấy thông tin ngân hàng.
                 await connection.execute(
                     "UPDATE DonHang SET TrangThaiHoanTien = 'choxuly' WHERE MaDH = ?",
@@ -403,7 +461,8 @@ router.put('/:id/cancel', authenticate, async (req, res, next) => {
         let thongTinHoanTien = null;
         let trangThaiHoanTien = 'khongapdung';
 
-        if (order.TrangThaiTT === 'dathanhtoan') {
+        // Đơn trả hết bằng ví tín dụng tự hoàn vào ví khi hủy, không cần thông tin ngân hàng.
+        if (order.TrangThaiTT === 'dathanhtoan' && order.PhuongThucThanhToan !== 'tindung') {
             if (!nganHang || !soTK || !chuTK) {
                 return res.status(400).json({
                     success: false,
@@ -506,7 +565,18 @@ router.get('/:id', authenticate, async (req, res, next) => {
         }
 
         const items = await DonHangModel.getOrderItems(orderId);
-        res.json({ success: true, data: { info: orderInfo, items } });
+        // Đơn PayOS đang chờ thanh toán: trả lại link + mã QR để khách thanh toán tiếp ("Thanh toán sau").
+        const { DuLieuThanhToan: savedPayment, ...info } = orderInfo;
+        let payment = null;
+        if (info.ThanhToanHinhThuc === 'payos' && info.TrangThaiTT === 'chuathanhtoan' && info.TrangThai === 'choxacnhan' && savedPayment) {
+            const expiresAt = new Date(info.NgayDat).getTime() + PAYOS_TIMEOUT_MINUTES * 60 * 1000;
+            try {
+                if (expiresAt > Date.now()) payment = { ...JSON.parse(savedPayment), orderId: info.MaDH, expiresAt };
+            } catch {
+                payment = null;
+            }
+        }
+        res.json({ success: true, data: { info, items, payment } });
     } catch (error) {
         next(error);
     }
@@ -538,15 +608,7 @@ router.get('/:id/status', authenticate, async (req, res, next) => {
         if (order.ThanhToanHinhThuc === 'payos' && order.MaGiaoDich) {
             try {
                 const orderCode = order.MaGiaoDich;
-                const response = await axios.get(`https://api-merchant.payos.vn/v2/payment-requests/${orderCode}`, {
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'x-client-id': process.env.PAYOS_CLIENT_ID,
-                        'x-api-key': process.env.PAYOS_API_KEY
-                    }
-                });
-                
-                const result = response.data;
+                const result = await PayOSService.getPaymentRequest(orderCode);
                 if (result.code === '00' && result.data && result.data.status) {
                     const payosStatus = result.data.status;
                     if (payosStatus === 'PAID') {

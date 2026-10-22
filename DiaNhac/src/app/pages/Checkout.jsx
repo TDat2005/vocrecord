@@ -1,106 +1,18 @@
 import { useEffect, useState } from 'react';
 import { Link, Navigate, useNavigate } from 'react-router';
-import { QrCode, ShoppingBag, Truck } from 'lucide-react';
+import { QrCode, ShoppingBag, Truck, Wallet } from 'lucide-react';
 import { useCart } from '../context/CartContext';
 import { useToast } from '../context/ToastContext';
 import { AddressFormModal } from '../components/AddressForm';
 import { DiscountForm } from '../components/DiscountForm';
 import { SafeImage } from '../components/SafeImage';
-import { Badge, EmptyState, Modal } from '../components/ui';
+import { Badge, EmptyState } from '../components/ui';
+import { PAYOS_TIMEOUT_SECONDS, PayosPaymentModal } from '../components/PayosPaymentModal';
 import { api, NETWORK_ERROR } from '../utils/api';
 import { useCurrentUser } from '../utils/auth';
 import { SHIPPING_FEE } from '../utils/catalog';
 import { formatPrice } from '../utils/format';
 import '../../styles/pages/cart.css';
-
-const PAYOS_TIMEOUT_SECONDS = 600; // Server tự hủy đơn PayOS chưa thanh toán sau 10 phút.
-
-// Hộp thoại quét mã VietQR, tự kiểm tra trạng thái thanh toán mỗi 3 giây.
-function PayosPaymentModal({ payment, onPaid, onExpired, onClose }) {
-  const toast = useToast();
-  const [secondsLeft, setSecondsLeft] = useState(PAYOS_TIMEOUT_SECONDS);
-  const [canceling, setCanceling] = useState(false);
-
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setSecondsLeft(Math.max(0, Math.round((payment.expiresAt - Date.now()) / 1000)));
-    }, 1000);
-    return () => clearInterval(timer);
-  }, [payment.expiresAt]);
-
-  useEffect(() => {
-    if (secondsLeft === 0) onExpired('Đơn hàng đã hết hạn thanh toán (quá 10 phút) và đã được hủy.');
-  }, [secondsLeft, onExpired]);
-
-  const checkStatus = async (manual = false) => {
-    try {
-      const data = await api.get(`/orders/${payment.orderId}/status`);
-      if (data.success && data.status === 'dathanhtoan') onPaid(payment.orderId);
-      else if (data.status === 'dahuy' || data.status === 'thatbai') onExpired('Đơn hàng đã hết hạn thanh toán hoặc đã bị hủy.');
-      else if (manual) toast.show('Hệ thống chưa ghi nhận thanh toán. Đang tiếp tục kiểm tra tự động...');
-    } catch {
-      if (manual) toast.error(NETWORK_ERROR);
-    }
-  };
-
-  useEffect(() => {
-    const interval = setInterval(() => checkStatus(false), 3000);
-    return () => clearInterval(interval);
-  }, [payment.orderId]);
-
-  const handleCancel = async () => {
-    if (!window.confirm('Hủy đơn hàng này để chọn phương thức thanh toán khác?')) return;
-    setCanceling(true);
-    try {
-      const data = await api.put(`/orders/${payment.orderId}/cancel`, { lyDo: 'Khách hủy lệnh PayOS để chọn lại phương thức thanh toán' });
-      if (data.success) toast.success('Đã hủy lệnh thanh toán. Bạn có thể chọn phương thức khác.');
-      else toast.error(data.message || 'Không thể hủy đơn hàng');
-    } catch {
-      toast.error(NETWORK_ERROR);
-    } finally {
-      setCanceling(false);
-      onClose('cancel');
-    }
-  };
-
-  const minutes = String(Math.floor(secondsLeft / 60)).padStart(2, '0');
-  const seconds = String(secondsLeft % 60).padStart(2, '0');
-
-  return (
-    <Modal
-      title={`Thanh toán đơn hàng #${payment.orderId}`}
-      footer={(
-        <>
-          <button type="button" className="btn btn--plain btn--plain-critical" onClick={handleCancel} disabled={canceling} style={{ marginRight: 'auto' }}>
-            {canceling ? 'Đang hủy...' : 'Hủy & đổi phương thức'}
-          </button>
-          <button type="button" className="btn btn--secondary" onClick={() => onClose('later')} disabled={canceling}>Thanh toán sau</button>
-          <button type="button" className="btn btn--primary" onClick={() => checkStatus(true)}>Tôi đã chuyển khoản</button>
-        </>
-      )}
-    >
-      <div className="payos">
-        <div className="banner banner--warning">
-          <span>Mã thanh toán hết hạn sau <strong className="payos__timer">{minutes}:{seconds}</strong></span>
-        </div>
-        <p className="text-muted text-sm">Mở ứng dụng ngân hàng hoặc ví điện tử bất kỳ để quét mã VietQR bên dưới.</p>
-        <div className="payos__qr">
-          <img src={`https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(payment.qrCode || '')}`} alt="Mã QR thanh toán" />
-        </div>
-        <dl className="description-list">
-          <dt>Ngân hàng (BIN)</dt><dd>{payment.bin}</dd>
-          <dt>Chủ tài khoản</dt><dd>{payment.accountName}</dd>
-          <dt>Số tài khoản</dt><dd>{payment.accountNumber}</dd>
-          <dt>Số tiền</dt><dd className="font-semibold">{formatPrice(payment.amount)}</dd>
-          <dt>Nội dung</dt><dd>{payment.description}</dd>
-        </dl>
-        {payment.checkoutUrl && (
-          <a href={payment.checkoutUrl} target="_blank" rel="noopener noreferrer" className="link text-sm">Mở trang thanh toán PayOS</a>
-        )}
-      </div>
-    </Modal>
-  );
-}
 
 export function Checkout() {
   const navigate = useNavigate();
@@ -114,11 +26,20 @@ export function Checkout() {
   const [showAddressForm, setShowAddressForm] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [payment, setPayment] = useState(null);
+  const [credit, setCredit] = useState({ balance: 0, use: false });
   const customerId = user?.customer_id;
 
   useEffect(() => {
     refreshCart();
   }, [refreshCart]);
+
+  // Số dư ví tín dụng (tiền bán/ký gửi đĩa cũ) để trừ vào đơn.
+  useEffect(() => {
+    if (!customerId) return;
+    api.get('/tradein/wallet').then((data) => {
+      if (data.success && data.data.balance > 0) setCredit({ balance: data.data.balance, use: true });
+    }).catch(() => {});
+  }, [customerId]);
 
   // Sổ địa chỉ; nếu trống thì lấy địa chỉ trong hồ sơ khách hàng.
   useEffect(() => {
@@ -168,7 +89,11 @@ export function Checkout() {
   }
 
   const discountAmount = appliedDiscount?.amount || 0;
-  const total = Math.max(0, subtotal - discountAmount + SHIPPING_FEE);
+  const totalBeforeCredit = Math.max(0, subtotal - discountAmount + SHIPPING_FEE);
+  // Server tự tính lại phần trừ ví theo số dư thật lúc đặt hàng; ở đây chỉ để hiển thị.
+  const creditUsed = credit.use ? Math.min(credit.balance, totalBeforeCredit) : 0;
+  const total = totalBeforeCredit - creditUsed;
+  const paidByCredit = creditUsed > 0 && total === 0;
 
   const handleAddAddress = (values) => {
     const newAddress = {
@@ -199,7 +124,7 @@ export function Checkout() {
       return;
     }
 
-    const isPayos = paymentMethod === 'online';
+    const isPayos = paymentMethod === 'online' && !paidByCredit;
     setSubmitting(true);
     try {
       const data = await api.post('/orders', {
@@ -211,6 +136,7 @@ export function Checkout() {
         ghiChu: note,
         saveAddress: Boolean(selected.isNew),
         discountCode: appliedDiscount?.code || null,
+        useCredit: credit.use && credit.balance > 0,
         phuongThucThanhToan: isPayos ? 'payos' : 'cod',
         ghn: {
           provinceId: selected.GHNProvinceId || '',
@@ -300,10 +226,25 @@ export function Checkout() {
               </label>
             </section>
 
+            {credit.balance > 0 && (
+              <section className="card">
+                <div className="card__header">
+                  <h2 className="card__title"><Wallet size={18} /> Ví tín dụng</h2>
+                </div>
+                <label className="checkbox-label">
+                  <input type="checkbox" checked={credit.use} onChange={(event) => setCredit((current) => ({ ...current, use: event.target.checked }))} />
+                  <span>Dùng số dư {formatPrice(credit.balance)} (tiền bán, ký gửi đĩa cũ) để thanh toán</span>
+                </label>
+              </section>
+            )}
+
             <section className="card">
               <div className="card__header">
                 <h2 className="card__title">Phương thức thanh toán</h2>
               </div>
+              {paidByCredit ? (
+                <p className="text-sm text-muted">Ví tín dụng trả toàn bộ đơn hàng, bạn không cần thanh toán thêm khi nhận hàng.</p>
+              ) : (
               <div className="choice-list">
                 <label className={`choice ${paymentMethod === 'cod' ? 'choice--selected' : ''}`}>
                   <input type="radio" name="payment" checked={paymentMethod === 'cod'} onChange={() => setPaymentMethod('cod')} />
@@ -322,10 +263,11 @@ export function Checkout() {
                   <QrCode size={20} className="text-muted" />
                 </label>
               </div>
+              )}
             </section>
 
             <button type="submit" className="btn btn--primary btn--lg btn--full" disabled={submitting}>
-              {submitting ? 'Đang đặt hàng...' : paymentMethod === 'online' ? 'Thanh toán bằng VietQR' : 'Đặt hàng'}
+              {submitting ? 'Đang đặt hàng...' : paymentMethod === 'online' && !paidByCredit ? 'Thanh toán bằng VietQR' : 'Đặt hàng'}
             </button>
             <Link to="/cart" className="link text-sm checkout__back">Quay lại giỏ hàng</Link>
           </form>
@@ -353,6 +295,9 @@ export function Checkout() {
               <div className="summary-row"><span className="text-muted">Phí vận chuyển</span><span>{formatPrice(SHIPPING_FEE)}</span></div>
               {appliedDiscount && (
                 <div className="summary-row"><span className="text-muted">Giảm giá ({appliedDiscount.code})</span><span>−{formatPrice(discountAmount)}</span></div>
+              )}
+              {creditUsed > 0 && (
+                <div className="summary-row"><span className="text-muted">Trả bằng ví tín dụng</span><span>−{formatPrice(creditUsed)}</span></div>
               )}
             </div>
             <div className="summary-row summary-row--total"><span>Tổng cộng</span><span>{formatPrice(total)}</span></div>

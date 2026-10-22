@@ -21,6 +21,7 @@ import { Register } from './pages/Register';
 import { ForgotPassword } from './pages/ForgotPassword';
 import { Chat } from './pages/Chat';
 import { Search } from './pages/Search';
+import { SellRecords } from './pages/SellRecords';
 
 export const router = createHashRouter([
   {
@@ -30,6 +31,7 @@ export const router = createHashRouter([
       { index: true, Component: Home },
       { path: 'shop', Component: Shop },
       { path: 'search', Component: Search },
+      { path: 'sell', Component: SellRecords },
       { path: 'product/:id', Component: ProductDetail },
       { path: 'cart', Component: Cart },
       { path: 'checkout', Component: Checkout },

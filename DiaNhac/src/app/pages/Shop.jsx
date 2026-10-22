@@ -8,6 +8,7 @@ import { MUSIC_GENRES, PRODUCT_CATEGORIES } from '../utils/catalog';
 import '../../styles/pages/shop.css';
 
 const ALL = 'Tất cả';
+const ITEM_TYPES = { 'Hàng mới': 'moi', 'Đĩa cũ': 'cu' };
 
 function FilterGroup({ title, name, options, value, onChange }) {
   return (
@@ -31,6 +32,7 @@ export function Shop() {
   const { products, loading, error } = useProducts();
   const [category, setCategory] = useState(ALL);
   const [genre, setGenre] = useState(ALL);
+  const [itemType, setItemType] = useState(searchParams.get('loai') === 'cu' ? 'Đĩa cũ' : ALL);
   const [sortBy, setSortBy] = useState('name');
   const [showFilters, setShowFilters] = useState(false);
 
@@ -41,18 +43,20 @@ export function Shop() {
       const musicGenre = String(product.music_genre || '').toUpperCase();
       const matchesCategory = category === ALL || productCategory === category;
       const matchesGenre = genre === ALL || musicGenre === genre;
+      const matchesType = itemType === ALL || (product.item_type || 'moi') === ITEM_TYPES[itemType];
       const matchesSearch = !keyword
         || String(product.title).toLowerCase().includes(keyword)
         || String(product.artist || '').toLowerCase().includes(keyword);
-      return matchesCategory && matchesGenre && matchesSearch;
+      return matchesCategory && matchesGenre && matchesType && matchesSearch;
     });
     return sortProducts(matches, sortBy);
-  }, [products, category, genre, searchQuery, sortBy]);
+  }, [products, category, genre, itemType, searchQuery, sortBy]);
 
-  const hasFilters = category !== ALL || genre !== ALL;
+  const hasFilters = category !== ALL || genre !== ALL || itemType !== ALL;
   const resetFilters = () => {
     setCategory(ALL);
     setGenre(ALL);
+    setItemType(ALL);
   };
 
   return (
@@ -78,6 +82,7 @@ export function Shop() {
             </div>
             <FilterGroup title="Danh mục" name="category" options={[ALL, ...PRODUCT_CATEGORIES]} value={category} onChange={setCategory} />
             <FilterGroup title="Thể loại nhạc" name="genre" options={[ALL, ...MUSIC_GENRES]} value={genre} onChange={setGenre} />
+            <FilterGroup title="Tình trạng" name="item-type" options={[ALL, ...Object.keys(ITEM_TYPES)]} value={itemType} onChange={setItemType} />
             {hasFilters && (
               <button type="button" className="btn btn--plain" onClick={resetFilters}>Xóa bộ lọc</button>
             )}

@@ -20,6 +20,10 @@ services:
       - ./database/07_migrate_chat_and_indexes.sql:/docker-entrypoint-initdb.d/07_migrate_chat_and_indexes.sql:ro
       - ./database/migrate_08_fk_restrict_sanpham.sql:/docker-entrypoint-initdb.d/08_fk_restrict_sanpham.sql:ro
       - ./database/09_ai_search.sql:/docker-entrypoint-initdb.d/09_ai_search.sql:ro
+      - ./database/10_real_covers.sql:/docker-entrypoint-initdb.d/10_real_covers.sql:ro
+      - ./database/11_trade_in.sql:/docker-entrypoint-initdb.d/11_trade_in.sql:ro
+      - ./database/12_order_lifecycle.sql:/docker-entrypoint-initdb.d/12_order_lifecycle.sql:ro
+      - ./database/13_discount_per_customer.sql:/docker-entrypoint-initdb.d/13_discount_per_customer.sql:ro
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p$${MYSQL_ROOT_PASSWORD}"]
       interval: 10s

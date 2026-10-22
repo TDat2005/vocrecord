@@ -28,6 +28,7 @@
   - [1. Dành Cho Khách Hàng (Storefront)](#1-dành-cho-khách-hàng-storefront)
   - [2. Quản Trị Hệ Thống (Admin Panel)](#2-quản-trị-hệ-thống-admin-panel)
   - [3. Trợ Lý Mua Sắm AI & Tìm Kiếm Thông Minh](#3-trợ-lý-mua-sắm-ai--tìm-kiếm-thông-minh)
+  - [4. Thu Mua & Ký Gửi Đĩa Cũ](#4-thu-mua--ký-gửi-đĩa-cũ)
 - [Kiến Trúc & Công Nghệ](#-kiến-trúc--công-nghệ)
 - [Cấu Trúc Thư Mục](#-cấu-trúc-thư-mục)
 - [Hướng Dẫn Cài Đặt & Chạy Ứng Dụng](#-hướng-dẫn-cài-đặt--chạy-ứng-dụng)
@@ -106,7 +107,7 @@
 | :--- | :--- | :--- |
 | **Tìm kiếm thông minh** (`/search`, ô tìm kiếm trên header) | Tách điều kiện cứng (giá "dưới 800k", "1tr2", loại, còn hàng) → BM25 tiếng Việt có dấu/không dấu + embedding `multilingual-e5-small` → gộp hai bảng xếp hạng bằng Reciprocal Rank Fusion | Miễn phí, chạy cục bộ |
 | **Tìm bằng ảnh bìa** (nút "Tìm bằng ảnh bìa") | Mô hình CLIP chạy ngay trong trình duyệt (Web Worker + WebAssembly), chỉ gửi vector 512 số lên server so với vector ảnh bìa sản phẩm; trình duyệt yếu thì server tự chạy CLIP | Miễn phí, chạy cục bộ |
-| **Trợ lý chat AI** (nút "Trợ lý AI" góc phải) | Claude gọi công cụ (`search_products`, `get_product`, `add_to_cart`, `check_discount`, `get_my_orders`) trên dữ liệu thật, trả lời dạng stream (SSE), tự thêm vào giỏ khi khách yêu cầu | Cần `ANTHROPIC_API_KEY`; không có key thì widget tự chuyển sang tìm kiếm thông minh |
+| **Trợ lý chat AI** (nút "Trợ lý AI" góc phải) | Gemini (`gemini-3.6-flash`) gọi công cụ (`search_products`, `get_product`, `add_to_cart`, `check_discount`, `get_my_orders`) trên dữ liệu thật, trả lời dạng stream (SSE), tự thêm vào giỏ khi khách yêu cầu. Hết lượt miễn phí hoặc phản hồi quá chậm thì chuyển sang `gemini-3.5-flash-lite` | Cần `GEMINI_API_KEY` (gói miễn phí của Google AI Studio); không có key hoặc hết lượt thì widget tự chuyển sang tìm kiếm thông minh |
 | **MCP server** (`mcp/`) | Claude Desktop tìm đĩa, xem trước và đặt đơn COD, theo dõi đơn qua REST API của cửa hàng. Hướng dẫn: [`mcp/README.md`](mcp/README.md) | Theo gói Claude của người dùng |
 
 Câu thử: *"nhạc buồn nghe lúc mưa, dưới 800k"*, *"jazz thư giãn quán cà phê"*, *"mâm đĩa cho người mới tầm 5 triệu"*, *"cassette dưới 450k"*.
@@ -115,6 +116,18 @@ Câu thử: *"nhạc buồn nghe lúc mưa, dưới 800k"*, *"jazz thư giãn qu
 - Mô hình (~250MB) tải từ Hugging Face ở lần chạy đầu, lưu ở volume `model_cache`; vector sản phẩm lưu trong bảng `SanPhamVector` và tự tính lại khi sản phẩm đổi nội dung.
 - Mô hình chưa tải xong hoặc không tải được: tìm kiếm tự lùi về từ khóa, không báo lỗi cho khách.
 - API: `GET /api/search?q=...&mode=hybrid|semantic|keyword&max_price=&category=`, `GET /api/search/status`, `POST /api/search/image`, `POST /api/assistant/chat` (SSE).
+
+### 4. Thu Mua & Ký Gửi Đĩa Cũ
+
+Khác với web bán hàng thông thường chỉ bán ra, Vọc Records **mua vào** đĩa cũ của khách. Mỗi bản đĩa cũ được chấm tình trạng theo thang **Goldmine** (M, NM, VG+, VG, G+, G, P), chấm riêng đĩa và bìa, rồi lên kệ như một sản phẩm riêng (tồn kho 1).
+
+- **Khách** (trang `/sell`, tab *Bán & ký gửi* trong Tài khoản): chụp ảnh đĩa → **Gemini xem ảnh**, nhận ra album (kể cả khi khách không ghi tên) và chấm sơ bộ tình trạng; CLIP/tên album đối chiếu với bản mới trong catalog để lấy giá tham chiếu → xem ước tính ngay → gửi yêu cầu (mang tới cửa hàng hoặc gửi vận chuyển) → nhận báo giá → chọn **bán đứt** (tiền mặt, chuyển khoản, hoặc **ví tín dụng +10%**) hay **ký gửi** (cửa hàng bán hộ 90 ngày, giữ 20% hoa hồng, rút đĩa bất cứ lúc nào).
+- **Nhân viên** (Quản trị → *Thu mua & ký gửi*): hẹn lịch nhận đĩa → nhận đĩa (form điền sẵn gợi ý của AI) → thẩm định từng đĩa, nút *Tính theo bảng giá* → gửi báo giá → khách đồng ý thì đĩa **tự tạo sản phẩm "Đĩa cũ"** (ảnh thật, tracklist, thể loại kế thừa từ bản mới) → chi trả. Tab *Hợp đồng ký gửi*: chi trả người gửi, trả lại đĩa.
+- **Ví tín dụng**: nhận khi bán/ký gửi đĩa, dùng trừ vào đơn hàng ở bước thanh toán (trả hết bằng ví thì không cần COD/PayOS); hủy đơn tự hoàn lại ví. Mọi biến động ghi sổ (`GiaoDichTinDung`).
+- **Ký gửi tự quyết toán**: đơn chứa đĩa ký gửi chuyển *Hoàn thành* (nhân viên hoặc webhook GHN) → hợp đồng chuyển *Đã bán*, tính tiền trả người gửi (cộng ví ngay nếu chọn ví).
+- **Báo cáo**: số đĩa thu mua và tiền chi, doanh thu và lãi gộp đĩa cũ, hoa hồng ký gửi, tiền còn nợ người gửi, tín dụng đang lưu hành, **tỷ lệ AI chấm khớp nhân viên**.
+- Máy trạng thái yêu cầu: `moi → chonhandia → dangthamdinh → chokhachxacnhan → hoanthanh` (hoặc `tuchoi`, `khachtuchoi`, `dahuy`); hợp đồng ký gửi: `dangban → daban → dathanhtoan` (hoặc `datra`). Chi tiết ở đầu `server/src/routes/tradein.routes.js`, chính sách giá ở `server/src/services/tradein/pricing.js`.
+- Không có `GEMINI_API_KEY`: vẫn dùng được, giá ước tính theo tình trạng khách tự đánh giá, nhân viên chấm tay.
 
 ---
 
@@ -170,7 +183,7 @@ vocrecord/
 │   │   ├── models/             # Data access models (SanPham, DonHang, TaiKhoan...)
 │   │   ├── routes/             # REST API routes (order, product, payos, shipping, account...)
 │   │   ├── services/           # Nghiệp vụ PayOS, GHN API, Email OTP, WebSocket Chat
-│   │   │   └── ai/             # Tìm kiếm hybrid (BM25 + vector), embedding cục bộ, trợ lý Claude
+│   │   │   └── ai/             # Tìm kiếm hybrid (BM25 + vector), embedding cục bộ, trợ lý Gemini
 │   │   └── index.js            # Server entry point
 │   ├── .env.example            # Mẫu cấu hình môi trường backend
 │   ├── Dockerfile
@@ -187,6 +200,10 @@ vocrecord/
 │   ├── 06_migrate_shipping_interactions.sql
 │   ├── 07_migrate_chat_and_indexes.sql
 │   ├── 09_ai_search.sql        # Từ khóa AI cho sản phẩm + bảng lưu vector
+│   ├── 10_real_covers.sql      # Ảnh bìa album thật thay ảnh minh họa
+│   ├── 11_trade_in.sql         # Thu mua & ký gửi đĩa cũ, ví tín dụng
+│   ├── 12_order_lifecycle.sql  # Ngày giao thành công (hạn đổi trả, doanh thu), lưu link PayOS để thanh toán sau
+│   ├── 13_discount_per_customer.sql # Giới hạn số lần mỗi khách dùng một mã giảm giá (mặc định 1)
 │   └── backup_clonevocrecord_latest.sql   # Bản backup đầy đủ dữ liệu mới nhất
 │
 ├── docker-compose.yml          # Cấu hình Docker toàn bộ hệ thống (Web, API, DB)
@@ -264,7 +281,7 @@ PORT=3000
 NODE_ENV=production
 
 # Trợ lý chat AI (để trống thì widget chuyển sang tìm kiếm thông minh)
-ANTHROPIC_API_KEY=
+GEMINI_API_KEY=
 
 # Kết nối MySQL Database
 DB_HOST=db
@@ -309,10 +326,13 @@ SMTP_FROM_NAME=Vọc Records
 
 ## 💾 Cơ Sở Dữ Liệu & Sao Lưu (Backup / Restore)
 
-> CSDL đã chạy từ trước (volume có sẵn) không tự chạy migration mới. Sau khi cập nhật lên bản có module AI, nạp thủ công (chạy lại nhiều lần được):
+> CSDL đã chạy từ trước (volume có sẵn) không tự chạy migration mới. Sau khi cập nhật, nạp thủ công theo thứ tự (chạy lại nhiều lần được):
 > ```bash
-> docker compose exec -T db sh -c 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" --default-character-set=utf8mb4 clonevocrecord' < database/09_ai_search.sql
+> for f in database/09_ai_search.sql database/10_real_covers.sql database/11_trade_in.sql database/12_order_lifecycle.sql database/13_discount_per_customer.sql; do
+>   docker compose exec -T db sh -c 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" --default-character-set=utf8mb4 clonevocrecord' < "$f"
+> done
 > ```
+> Lưu ý: `docker-compose.yml` nạp cả thư mục `database/` khi tạo volume mới, nên các file `backup_*.sql` (chạy sau 09–13 theo thứ tự tên) sẽ ghi đè lại bảng. Tạo volume mới trên máy có file backup thì chạy lại vòng lặp trên sau khi DB khởi tạo xong.
 
 File cơ sở dữ liệu mới nhất được đặt tại: `database/backup_clonevocrecord_latest.sql`
 

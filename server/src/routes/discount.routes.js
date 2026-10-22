@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../config/database');
 const DiscountModel = require('../models/discount.model');
-const { authenticate, requireRole } = require('../middleware/auth.middleware');
+const { authenticate, optionalAuth, requireRole } = require('../middleware/auth.middleware');
 
 const editor = [authenticate, requireRole('admin', 'nhanvien')];
 
@@ -17,31 +17,46 @@ router.get('/', ...editor, async (req, res, next) => {
 });
 
 // 2. POST /check — Validate and calculate discount
-router.post('/check', async (req, res, next) => {
+router.post('/check', optionalAuth, async (req, res, next) => {
     try {
-        res.json(await DiscountModel.check(req.body.code, req.body.cartTotal));
+        res.json(await DiscountModel.check(req.body.code, req.body.cartTotal, req.user && req.user.customerId));
     } catch (error) {
         next(error);
     }
 });
 
+// Kiểm tra dữ liệu mã giảm giá (trước đây nhận cả mức giảm 150% hay số lượt âm).
+function readDiscount(body) {
+    const discount = {
+        code: String(body.Code || '').trim().toUpperCase(),
+        type: body.LoaiGiamGia === 'fixed' ? 'fixed' : 'percent',
+        value: Number(body.GiaTri),
+        minimum: body.DonHangToiThieu === undefined || body.DonHangToiThieu === '' ? 0 : Number(body.DonHangToiThieu),
+        quantity: body.SoLuong === undefined || body.SoLuong === '' ? 0 : Number(body.SoLuong),
+        perCustomer: body.GioiHanMoiKhach === undefined || body.GioiHanMoiKhach === '' ? 1 : Number(body.GioiHanMoiKhach),
+        // Chuỗi rỗng không hợp lệ với cột DATETIME: bỏ trống nghĩa là không giới hạn.
+        expiry: body.NgayHetHan || null,
+    };
+    let error = null;
+    if (!/^[A-Z0-9_-]{3,30}$/.test(discount.code)) error = 'Mã gồm 3–30 ký tự chữ không dấu, số, gạch ngang';
+    else if (!Number.isFinite(discount.value) || discount.value <= 0) error = 'Giá trị giảm phải lớn hơn 0';
+    else if (discount.type === 'percent' && discount.value > 100) error = 'Giảm theo phần trăm tối đa 100%';
+    else if (!Number.isFinite(discount.minimum) || discount.minimum < 0) error = 'Giá trị đơn tối thiểu không hợp lệ';
+    else if (!Number.isInteger(discount.quantity) || discount.quantity < 0) error = 'Số lượt dùng phải là số nguyên không âm (0 = không giới hạn)';
+    else if (!Number.isInteger(discount.perCustomer) || discount.perCustomer < 0) error = 'Giới hạn mỗi khách phải là số nguyên không âm (0 = không giới hạn)';
+    else if (discount.expiry && Number.isNaN(Date.parse(discount.expiry))) error = 'Ngày hết hạn không hợp lệ';
+    return { discount, error };
+}
+
 // 3. POST / — Create new discount code
 router.post('/', ...editor, async (req, res, next) => {
     try {
-        const code = req.body.Code || '';
-        const loai = req.body.LoaiGiamGia || 'percent';
-        const giaTri = parseFloat(req.body.GiaTri) || 0;
-        const dk = parseFloat(req.body.DonHangToiThieu) || 0;
-        const sl = parseInt(req.body.SoLuong) || 0;
-        const han = req.body.NgayHetHan || null;
-
-        if (!code || giaTri <= 0) {
-            return res.json({ success: false, message: 'Dữ liệu không hợp lệ' });
-        }
+        const { discount: d, error } = readDiscount(req.body || {});
+        if (error) return res.status(400).json({ success: false, message: error });
 
         await pool.query(
-            "INSERT INTO MaGiamGia (Code, LoaiGiamGia, GiaTri, DonHangToiThieu, SoLuong, NgayHetHan) VALUES (?, ?, ?, ?, ?, ?)",
-            [code.toUpperCase(), loai, giaTri, dk, sl, han]
+            "INSERT INTO MaGiamGia (Code, LoaiGiamGia, GiaTri, DonHangToiThieu, SoLuong, GioiHanMoiKhach, NgayHetHan) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            [d.code, d.type, d.value, d.minimum, d.quantity, d.perCustomer, d.expiry]
         );
         res.json({ success: true, message: 'Tạo mã thành công' });
     } catch (error) {
@@ -57,21 +72,12 @@ router.put('/:id', ...editor, async (req, res, next) => {
             return res.json({ success: false, message: 'Thiếu ID' });
         }
         
-        const code = String(req.body.Code || '').trim();
-        const loai = req.body.LoaiGiamGia === 'fixed' ? 'fixed' : 'percent';
-        const giaTri = parseFloat(req.body.GiaTri) || 0;
-        const dk = parseFloat(req.body.DonHangToiThieu) || 0;
-        const sl = parseInt(req.body.SoLuong, 10) || 0;
-        // Chuỗi rỗng không hợp lệ với cột DATETIME: bỏ trống nghĩa là không giới hạn.
-        const han = req.body.NgayHetHan || null;
-
-        if (!code || giaTri <= 0) {
-            return res.json({ success: false, message: 'Dữ liệu không hợp lệ' });
-        }
+        const { discount: d, error } = readDiscount(req.body || {});
+        if (error) return res.status(400).json({ success: false, message: error });
 
         await pool.query(
-            "UPDATE MaGiamGia SET Code = ?, LoaiGiamGia = ?, GiaTri = ?, DonHangToiThieu = ?, SoLuong = ?, NgayHetHan = ? WHERE MaGG = ?",
-            [code.toUpperCase(), loai, giaTri, dk, sl, han, id]
+            "UPDATE MaGiamGia SET Code = ?, LoaiGiamGia = ?, GiaTri = ?, DonHangToiThieu = ?, SoLuong = ?, GioiHanMoiKhach = ?, NgayHetHan = ? WHERE MaGG = ?",
+            [d.code, d.type, d.value, d.minimum, d.quantity, d.perCustomer, d.expiry, id]
         );
         res.json({ success: true, message: 'Cập nhật thành công' });
     } catch (error) {

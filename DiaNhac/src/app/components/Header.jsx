@@ -12,6 +12,7 @@ export const NAV_ITEMS = [
   { label: 'Phụ kiện', href: '/accessories' },
   { label: 'Blog', href: '/blog' },
   { label: 'Hướng dẫn', href: '/guides' },
+  { label: 'Bán đĩa cũ', href: '/sell' },
 ];
 
 export function Header() {
