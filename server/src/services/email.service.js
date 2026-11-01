@@ -1,5 +1,6 @@
 const nodemailer = require('nodemailer');
 const pool = require('../config/database');
+const { ORDER_STATUS_LABELS } = require('../constants/order');
 
 const formatMoney = (value) => `${new Intl.NumberFormat('vi-VN').format(Number(value) || 0)}đ`;
 
@@ -104,16 +105,7 @@ class EmailService {
     }
 
     static getStatusText(status) {
-        const map = {
-            choxacnhan: 'Chờ xác nhận',
-            daxacnhan: 'Đã xác nhận',
-            dangchuanbihang: 'Đang chuẩn bị hàng',
-            danggiaohang: 'Đang giao hàng',
-            hoanthanh: 'Đã giao thành công',
-            dahuy: 'Đã hủy',
-            dahoantien: 'Đã hoàn tiền'
-        };
-        return map[status] || status;
+        return { ...ORDER_STATUS_LABELS, dahoantien: 'Đã hoàn tiền' }[status] || status;
     }
 
     static escapeHtml(unsafe) {

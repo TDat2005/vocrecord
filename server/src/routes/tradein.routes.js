@@ -1,4 +1,3 @@
-const crypto = require('crypto');
 const express = require('express');
 const router = express.Router();
 const pool = require('../config/database');
@@ -6,6 +5,10 @@ const { authenticate, requireRole } = require('../middleware/auth.middleware');
 const { rateLimit } = require('../middleware/rate-limit.middleware');
 const { appraise } = require('../services/tradein/appraisal');
 const Wallet = require('../services/tradein/wallet');
+const { returnConsignment } = require('../services/tradein/consignment');
+const { withTransaction } = require('../utils/db');
+const { fail } = require('../utils/http');
+const { decodePhoto, newPhotoKey, servePhoto } = require('../utils/photo');
 const { GRADES, GRADE_CODES, POLICY, buyoutPayout, roundPrice } = require('../services/tradein/pricing');
 
 // Thu mua & ký gửi đĩa cũ.
@@ -28,11 +31,9 @@ const OPEN_STATUSES = ['moi', 'chonhandia', 'dangthamdinh', 'chokhachxacnhan'];
 const CONTRACT_STATUSES = ['dangban', 'daban', 'dathanhtoan', 'datra'];
 const PAYOUT_METHODS = ['tienmat', 'chuyenkhoan', 'tindung'];
 const FORMATS = ['vinyl', 'cassette'];
-const MAX_PHOTO_BYTES = 2 * 1024 * 1024;
 
 const itemLimiter = rateLimit({ windowMs: 10 * 60 * 1000, max: 20, message: 'Bạn thẩm định quá nhiều đĩa trong thời gian ngắn. Vui lòng thử lại sau ít phút.' });
 
-const fail = (status, message) => Object.assign(new Error(message), { status });
 const text = (value, max) => String(value ?? '').trim().slice(0, max);
 const money = (value) => (value === null || value === undefined ? null : Number(value));
 const photoUrl = (photo) => `/api/tradein/photos/${photo.MaAnh}/${photo.KhoaTruyCap}`;
@@ -46,19 +47,6 @@ const requireCustomer = (req) => {
 async function staffId(req, connection = pool) {
     const [rows] = await connection.query('SELECT MaNV FROM NhanVien WHERE MaTK = ?', [req.user.id]);
     return rows[0] ? rows[0].MaNV : null;
-}
-
-// Giải mã ảnh data URL và kiểm tra đúng là JPEG/PNG/WEBP (không tin phần khai báo của trình duyệt).
-function decodePhoto(dataUrl) {
-    const match = /^data:image\/(jpeg|jpg|png|webp);base64,([A-Za-z0-9+/=]+)$/.exec(String(dataUrl || ''));
-    if (!match) throw fail(400, 'Ảnh phải là JPG, PNG hoặc WEBP');
-    const buffer = Buffer.from(match[2], 'base64');
-    if (buffer.length > MAX_PHOTO_BYTES) throw fail(400, 'Mỗi ảnh tối đa 2MB');
-    const isJpeg = buffer[0] === 0xff && buffer[1] === 0xd8;
-    const isPng = buffer.subarray(0, 4).toString('hex') === '89504e47';
-    const isWebp = buffer.subarray(0, 4).toString() === 'RIFF' && buffer.subarray(8, 12).toString() === 'WEBP';
-    if (!isJpeg && !isPng && !isWebp) throw fail(400, 'Tệp ảnh không hợp lệ');
-    return { buffer, mime: isJpeg ? 'image/jpeg' : isPng ? 'image/png' : 'image/webp' };
 }
 
 // ---------- Đọc dữ liệu ----------
@@ -146,20 +134,12 @@ router.get('/policy', (req, res) => {
 });
 
 // Ảnh khách chụp. Khóa ngẫu nhiên trong đường dẫn thay cho đăng nhập (thẻ <img> không gửi kèm token).
-router.get('/photos/:id/:key', async (req, res, next) => {
-    try {
-        const [rows] = await pool.query('SELECT KieuAnh, DuLieu FROM AnhThuMua WHERE MaAnh = ? AND KhoaTruyCap = ?', [req.params.id, req.params.key]);
-        if (!rows[0]) return res.status(404).end();
-        res.set({ 'Content-Type': rows[0].KieuAnh, 'Cache-Control': 'public, max-age=604800, immutable' });
-        res.send(rows[0].DuLieu);
-    } catch (error) { next(error); }
-});
+router.get('/photos/:id/:key', servePhoto(pool, 'AnhThuMua'));
 
 // ---------- Khách hàng ----------
 
 // Thêm một đĩa và thẩm định ngay bằng AI (chưa gửi yêu cầu). Khách xem ước tính rồi mới gửi.
 router.post('/items', authenticate, itemLimiter, async (req, res, next) => {
-    let connection;
     try {
         const customerId = requireCustomer(req);
         const title = text(req.body.title, 255);
@@ -180,39 +160,34 @@ router.post('/items', authenticate, itemLimiter, async (req, res, next) => {
                 identified: { title: result.ai.title, artist: result.ai.artist, year: result.ai.year, format: result.ai.format } }
             : { error: result.aiError };
 
-        connection = await pool.getConnection();
-        await connection.beginTransaction();
-        // Dọn đĩa nháp khách thêm nhưng không gửi yêu cầu.
-        await connection.query('DELETE FROM ChiTietThuMua WHERE MaYC IS NULL AND NgayTao < NOW() - INTERVAL 2 DAY');
-        const [inserted] = await connection.query(
-            `INSERT INTO ChiTietThuMua (MaKH, TenDia, NgheSi, DinhDang, NamPhatHanh, KhachTuDanhGia, AiTrangThai, AiTinhTrangDia, AiTinhTrangBia,
-                AiNhanXet, AiDoTinCay, AiMoHinh, MaSPThamChieu, DoGiongAnh, GiaThamChieu, GiaDeXuatThuMua, GiaDeXuatNiemYet)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [
-                customerId, title, artist || null, format, Number.isInteger(year) && year > 1900 ? year : (result.ai && result.ai.year) || null, selfGrade,
-                result.aiStatus, result.ai ? result.ai.mediaGrade : null, result.ai ? result.ai.sleeveGrade : null,
-                JSON.stringify(detail), result.ai ? result.ai.confidence : null, result.ai ? result.ai.model : null,
-                result.match ? result.match.productId : null, result.match ? result.match.similarity : null,
-                result.basePrice, result.suggestion.buyPrice, result.suggestion.listPrice,
-            ]
-        );
-        for (const [index, photo] of photos.entries()) {
-            await connection.query(
-                'INSERT INTO AnhThuMua (MaCT, KhoaTruyCap, KieuAnh, DuLieu, ThuTu) VALUES (?, ?, ?, ?, ?)',
-                [inserted.insertId, crypto.randomBytes(16).toString('hex'), photo.mime, photo.buffer, index]
+        const itemId = await withTransaction(async (connection) => {
+            const [inserted] = await connection.query(
+                `INSERT INTO ChiTietThuMua (MaKH, TenDia, NgheSi, DinhDang, NamPhatHanh, KhachTuDanhGia, AiTrangThai, AiTinhTrangDia, AiTinhTrangBia,
+                    AiNhanXet, AiDoTinCay, AiMoHinh, MaSPThamChieu, DoGiongAnh, GiaThamChieu, GiaDeXuatThuMua, GiaDeXuatNiemYet)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [
+                    customerId, title, artist || null, format, Number.isInteger(year) && year > 1900 ? year : (result.ai && result.ai.year) || null, selfGrade,
+                    result.aiStatus, result.ai ? result.ai.mediaGrade : null, result.ai ? result.ai.sleeveGrade : null,
+                    JSON.stringify(detail), result.ai ? result.ai.confidence : null, result.ai ? result.ai.model : null,
+                    result.match ? result.match.productId : null, result.match ? result.match.similarity : null,
+                    result.basePrice, result.suggestion.buyPrice, result.suggestion.listPrice,
+                ]
             );
-        }
-        await connection.commit();
-        connection.release();
-        connection = null;
+            for (const [index, photo] of photos.entries()) {
+                await connection.query(
+                    'INSERT INTO AnhThuMua (MaCT, KhoaTruyCap, KieuAnh, DuLieu, ThuTu) VALUES (?, ?, ?, ?, ?)',
+                    [inserted.insertId, newPhotoKey(), photo.mime, photo.buffer, index]
+                );
+            }
+            return inserted.insertId;
+        });
 
-        const [item] = await loadItems('c.MaCT = ?', [inserted.insertId]);
+        const [item] = await loadItems('c.MaCT = ?', [itemId]);
         res.status(201).json({
             success: true,
             data: { ...item, suggestion: result.suggestion, used_grades: result.grades, match_method: result.match ? result.match.method : null },
         });
     } catch (error) {
-        if (connection) { await connection.rollback(); connection.release(); }
         next(error);
     }
 });
@@ -229,13 +204,13 @@ router.delete('/items/:id', authenticate, async (req, res, next) => {
     try {
         const customerId = requireCustomer(req);
         const [result] = await pool.query('DELETE FROM ChiTietThuMua WHERE MaCT = ? AND MaKH = ? AND MaYC IS NULL', [req.params.id, customerId]);
-        res.json({ success: result.affectedRows > 0, message: result.affectedRows ? 'Đã bỏ đĩa khỏi danh sách' : 'Không tìm thấy đĩa nháp' });
+        if (!result.affectedRows) throw fail(404, 'Không tìm thấy đĩa nháp');
+        res.json({ success: true, message: 'Đã bỏ đĩa khỏi danh sách' });
     } catch (error) { next(error); }
 });
 
 // Gửi yêu cầu thu mua gồm các đĩa đã thêm.
 router.post('/', authenticate, async (req, res, next) => {
-    let connection;
     try {
         const customerId = requireCustomer(req);
         const itemIds = [...new Set((Array.isArray(req.body.item_ids) ? req.body.item_ids : []).map(Number).filter(Number.isInteger))];
@@ -243,20 +218,18 @@ router.post('/', authenticate, async (req, res, next) => {
         if (itemIds.length > POLICY.maxItemsPerRequest) throw fail(400, `Mỗi yêu cầu tối đa ${POLICY.maxItemsPerRequest} đĩa`);
         const delivery = req.body.delivery === 'guiship' ? 'guiship' : 'mangden';
 
-        connection = await pool.getConnection();
-        await connection.beginTransaction();
-        const [drafts] = await connection.query('SELECT MaCT FROM ChiTietThuMua WHERE MaCT IN (?) AND MaKH = ? AND MaYC IS NULL FOR UPDATE', [itemIds, customerId]);
-        if (drafts.length !== itemIds.length) throw fail(409, 'Danh sách đĩa đã thay đổi, vui lòng tải lại trang');
-        const [created] = await connection.query(
-            "INSERT INTO YeuCauThuMua (MaKH, TrangThai, CachGiao, GhiChuKhach) VALUES (?, 'moi', ?, ?)",
-            [customerId, delivery, text(req.body.note, 2000) || null]
-        );
-        await connection.query('UPDATE ChiTietThuMua SET MaYC = ? WHERE MaCT IN (?)', [created.insertId, itemIds]);
-        await connection.commit();
-        connection.release();
-        res.status(201).json({ success: true, message: 'Đã gửi yêu cầu thu mua', id: created.insertId });
+        const requestId = await withTransaction(async (connection) => {
+            const [drafts] = await connection.query('SELECT MaCT FROM ChiTietThuMua WHERE MaCT IN (?) AND MaKH = ? AND MaYC IS NULL FOR UPDATE', [itemIds, customerId]);
+            if (drafts.length !== itemIds.length) throw fail(409, 'Danh sách đĩa đã thay đổi, vui lòng tải lại trang');
+            const [created] = await connection.query(
+                "INSERT INTO YeuCauThuMua (MaKH, TrangThai, CachGiao, GhiChuKhach) VALUES (?, 'moi', ?, ?)",
+                [customerId, delivery, text(req.body.note, 2000) || null]
+            );
+            await connection.query('UPDATE ChiTietThuMua SET MaYC = ? WHERE MaCT IN (?)', [created.insertId, itemIds]);
+            return created.insertId;
+        });
+        res.status(201).json({ success: true, message: 'Đã gửi yêu cầu thu mua', id: requestId });
     } catch (error) {
-        if (connection) { await connection.rollback(); connection.release(); }
         next(error);
     }
 });
@@ -304,29 +277,6 @@ router.get('/consignments/mine', authenticate, async (req, res, next) => {
         res.json({ success: true, data: rows.map(formatContract) });
     } catch (error) { next(error); }
 });
-
-// Rút đĩa ký gửi chưa bán: gỡ khỏi cửa hàng, khách hẹn lấy lại đĩa.
-async function returnConsignment(contractId, { customerId = null } = {}) {
-    const connection = await pool.getConnection();
-    try {
-        await connection.beginTransaction();
-        const [[contract]] = await connection.query(
-            'SELECT hd.MaHD, hd.MaKH, hd.MaSP, hd.TrangThai, sp.SoLuongTon FROM HopDongKyGui hd JOIN SanPham sp ON sp.MaSP = hd.MaSP WHERE hd.MaHD = ? FOR UPDATE',
-            [contractId]
-        );
-        if (!contract || (customerId && contract.MaKH !== customerId)) throw fail(404, 'Không tìm thấy hợp đồng ký gửi');
-        if (contract.TrangThai !== 'dangban') throw fail(409, 'Chỉ rút được đĩa đang bán');
-        if (Number(contract.SoLuongTon) < 1) throw fail(409, 'Đĩa đang nằm trong một đơn hàng chưa hoàn tất, chưa rút được');
-        await connection.query("UPDATE SanPham SET SoLuongTon = 0, TinhTrang = 'ngungkinhdoanh' WHERE MaSP = ?", [contract.MaSP]);
-        await connection.query("UPDATE HopDongKyGui SET TrangThai = 'datra' WHERE MaHD = ?", [contractId]);
-        await connection.commit();
-    } catch (error) {
-        await connection.rollback();
-        throw error;
-    } finally {
-        connection.release();
-    }
-}
 
 router.post('/consignments/:id/withdraw', authenticate, async (req, res, next) => {
     try {
@@ -431,21 +381,6 @@ async function lockRequest(connection, id, allowed) {
     return row;
 }
 
-async function withTransaction(work) {
-    const connection = await pool.getConnection();
-    try {
-        await connection.beginTransaction();
-        const result = await work(connection);
-        await connection.commit();
-        return result;
-    } catch (error) {
-        await connection.rollback();
-        throw error;
-    } finally {
-        connection.release();
-    }
-}
-
 // Hẹn lịch nhận đĩa: moi -> chonhandia.
 router.put('/:id/schedule', ...staff, async (req, res, next) => {
     try {
@@ -504,7 +439,7 @@ router.put('/:id/items', ...staff, async (req, res, next) => {
                 if ((buyPrice !== null && !(buyPrice >= 0)) || (listPrice !== null && !(listPrice >= 0))) throw fail(400, 'Giá không hợp lệ');
                 const result = ['cho', 'nhan', 'loai'].includes(item.result) ? item.result : 'cho';
                 await connection.query(
-                    `UPDATE ChiTietThuMua SET TenDia = COALESCE(?, TenDia), NgheSi = ?, TinhTrangDia = ?, TinhTrangBia = ?, GiaThuMua = ?, GiaNiemYet = ?,
+                    `UPDATE ChiTietThuMua SET TenDia = COALESCE(?, TenDia), NgheSi = COALESCE(?, NgheSi), TinhTrangDia = ?, TinhTrangBia = ?, GiaThuMua = ?, GiaNiemYet = ?,
                             KetQua = ?, GhiChuThamDinh = ?
                      WHERE MaCT = ? AND MaYC = ?`,
                     [text(item.title, 255) || null, text(item.artist, 255) || null, media, sleeve,

@@ -9,5 +9,14 @@ export const MUSIC_GENRES = [
   'STAGE & SCREEN', 'CITY POP', 'VIỆT NAM', 'CHRISTMAS',
 ];
 
-// Phí vận chuyển đồng giá, phải khớp với shippingFee trong server/src/routes/order.routes.js.
-export const SHIPPING_FEE = 30000;
+// Server nhận tối đa 99 sản phẩm mỗi loại trong một đơn (server/src/routes/order.routes.js).
+// Phí vận chuyển không viết ở đây: đọc từ server qua useShopConfig() (hooks/useCachedGet.js).
+export const MAX_ORDER_QUANTITY = 99;
+
+// Câu thông báo sau khi thêm vào giỏ, theo số lượng thực sự thêm được (CartContext.addToCart trả về).
+// Trả về { ok, message }: ok = false khi không thêm được cái nào.
+export function addToCartMessage(product, requested, added) {
+  if (!added) return { ok: false, message: `Giỏ hàng đã có số lượng tối đa của "${product.title}"` };
+  if (added < requested) return { ok: true, message: `Chỉ thêm được ${added} × "${product.title}" (đã đạt số lượng tối đa)` };
+  return { ok: true, message: `Đã thêm ${added > 1 ? `${added} × ` : ''}"${product.title}" vào giỏ hàng` };
+}

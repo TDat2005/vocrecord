@@ -1,30 +1,62 @@
 const pool = require('../config/database');
 
-class SanPhamModel {
-    static async getAll(category = null, search = null, limit = 100, offset = 0) {
-        let query = "SELECT sp.MaSP as id, sp.TenSP as title, sp.NgheSi as artist, COALESCE(dm.TenDM, sp.TheLoai) as genre, COALESCE(dm.TenDM, sp.TheLoai) as category, sp.TheLoaiNhac as music_genre, sp.GiaBan as price, sp.SoLuongTon as stock, sp.MoTa as description, sp.HinhAnh as image, sp.DinhDang as format, sp.TinhTrangDia as `condition`, sp.QuyCach as package_info, sp.Tracklist as tracklist, sp.NamPhatHanh as year, sp.TinhTrang as status, sp.LoaiHang as item_type FROM SanPham sp LEFT JOIN DanhMuc dm ON sp.MaDM = dm.MaDM WHERE sp.TinhTrang <> 'ngungkinhdoanh'";
-        const params = [];
+// Cột trả về cho giao diện (tên tiếng Anh), dùng chung cho danh sách và chi tiết sản phẩm.
+const PRODUCT_COLUMNS = `sp.MaSP as id, sp.TenSP as title, sp.NgheSi as artist, COALESCE(dm.TenDM, sp.TheLoai) as genre,
+    COALESCE(dm.TenDM, sp.TheLoai) as category, sp.TheLoaiNhac as music_genre, sp.GiaBan as price, sp.SoLuongTon as stock,
+    sp.MoTa as description, sp.HinhAnh as image, sp.DinhDang as format, sp.TinhTrangDia as \`condition\`, sp.QuyCach as package_info,
+    sp.Tracklist as tracklist, sp.NamPhatHanh as year, sp.TinhTrang as status, sp.LoaiHang as item_type`;
+const PRODUCT_FROM = 'FROM SanPham sp LEFT JOIN DanhMuc dm ON sp.MaDM = dm.MaDM';
 
+const SORTS = {
+    newest: 'sp.MaSP DESC',
+    name: 'sp.TenSP ASC, sp.MaSP DESC',
+    'price-low': 'sp.GiaBan ASC, sp.MaSP DESC',
+    'price-high': 'sp.GiaBan DESC, sp.MaSP DESC',
+    year: 'sp.NamPhatHanh IS NULL, sp.NamPhatHanh DESC, sp.MaSP DESC',
+};
+
+class SanPhamModel {
+    /**
+     * Danh sách sản phẩm đang bán, lọc và phân trang ở CSDL (trước đây giao diện tải 100 sản phẩm rồi tự lọc,
+     * sản phẩm thứ 101 trở đi không bao giờ hiện ra).
+     * filters: category (tên danh mục), genre (thể loại nhạc), itemType ('moi' | 'cu'), search (tên/nghệ sĩ),
+     * inStock, excludeId, sort (newest | name | price-low | price-high | year).
+     */
+    static async search({ category, genre, itemType, search, inStock, excludeId, sort = 'newest', limit = 24, offset = 0 } = {}) {
+        const where = ["sp.TinhTrang <> 'ngungkinhdoanh'"];
+        const params = [];
         if (category) {
-            query += " AND dm.TenDM LIKE ?";
-            params.push(`%${category}%`);
+            where.push('COALESCE(dm.TenDM, sp.TheLoai) = ?');
+            params.push(category);
+        }
+        if (genre) {
+            where.push('UPPER(sp.TheLoaiNhac) = ?');
+            params.push(String(genre).toUpperCase());
+        }
+        if (itemType) {
+            where.push("COALESCE(sp.LoaiHang, 'moi') = ?");
+            params.push(itemType);
         }
         if (search) {
-            query += " AND sp.TenSP LIKE ?";
-            params.push(`%${search}%`);
+            where.push('(sp.TenSP LIKE ? OR sp.NgheSi LIKE ?)');
+            params.push(`%${search}%`, `%${search}%`);
         }
-
-        query += ' ORDER BY sp.MaSP DESC LIMIT ? OFFSET ?';
-        params.push(limit, offset);
-        const [rows] = await pool.execute(query, params);
-        return rows;
+        if (inStock) where.push('sp.SoLuongTon > 0');
+        if (excludeId) {
+            where.push('sp.MaSP <> ?');
+            params.push(excludeId);
+        }
+        const clause = `${PRODUCT_FROM} WHERE ${where.join(' AND ')}`;
+        const [[{ total }]] = await pool.query(`SELECT COUNT(*) AS total ${clause}`, params);
+        const [rows] = await pool.query(
+            `SELECT ${PRODUCT_COLUMNS} ${clause} ORDER BY ${SORTS[sort] || SORTS.newest} LIMIT ? OFFSET ?`,
+            [...params, limit, offset]
+        );
+        return { rows, total: Number(total) };
     }
 
     static async getById(id) {
-        const [rows] = await pool.execute(
-            "SELECT sp.MaSP as id, sp.TenSP as title, sp.NgheSi as artist, COALESCE(dm.TenDM, sp.TheLoai) as genre, COALESCE(dm.TenDM, sp.TheLoai) as category, sp.TheLoaiNhac as music_genre, sp.GiaBan as price, sp.SoLuongTon as stock, sp.MoTa as description, sp.HinhAnh as image, sp.DinhDang as format, sp.TinhTrangDia as `condition`, sp.QuyCach as package_info, sp.Tracklist as tracklist, sp.NamPhatHanh as year, sp.TinhTrang as status, sp.LoaiHang as item_type FROM SanPham sp LEFT JOIN DanhMuc dm ON sp.MaDM = dm.MaDM WHERE sp.MaSP = ?",
-            [id]
-        );
+        const [rows] = await pool.execute(`SELECT ${PRODUCT_COLUMNS} ${PRODUCT_FROM} WHERE sp.MaSP = ?`, [id]);
         return rows[0];
     }
 
@@ -94,22 +126,7 @@ class SanPhamModel {
         const [rows] = await pool.query("SELECT * FROM DanhMuc");
         return rows;
     }
-
-    static async updateStock(id, quantity, connection = pool) {
-        const [result] = await connection.execute(
-            "UPDATE SanPham SET SoLuongTon = SoLuongTon + ? WHERE MaSP = ?",
-            [quantity, id]
-        );
-        return result.affectedRows > 0;
-    }
-
-    static async decreaseStock(id, quantity, connection = pool) {
-        const [result] = await connection.execute(
-            "UPDATE SanPham SET SoLuongTon = SoLuongTon - ? WHERE MaSP = ? AND SoLuongTon >= ?",
-            [quantity, id, quantity]
-        );
-        return result.affectedRows > 0;
-    }
 }
 
 module.exports = SanPhamModel;
+module.exports.SORTS = Object.keys(SORTS);

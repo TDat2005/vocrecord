@@ -2,64 +2,49 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../config/database');
 const YeuThichModel = require('../models/yeuthich.model');
+const { fail } = require('../utils/http');
 const { authenticate } = require('../middleware/auth.middleware');
 
 router.use(authenticate);
 
-// 1. GET / — List wishlist items by ?customer_id=
+const readRequest = (req) => {
+    if (!req.user.customerId) throw fail(403, 'Chỉ tài khoản khách hàng mới lưu được sản phẩm yêu thích');
+    const productId = Number(req.body.product_id);
+    if (req.method !== 'GET' && (!Number.isInteger(productId) || productId <= 0)) throw fail(400, 'Sản phẩm không hợp lệ');
+    return { customerId: req.user.customerId, productId };
+};
+
+// GET / — Danh sách yêu thích của khách đang đăng nhập
 router.get('/', async (req, res, next) => {
     try {
-        const customerId = req.user.customerId || null;
-        if (!customerId) {
-            return res.json({ success: false, message: 'Thiếu mã khách hàng' });
-        }
-
-        const [rows] = await pool.query(
-            "SELECT sp.MaSP as id, sp.TenSP as title, sp.NgheSi as artist, sp.GiaBan as price, sp.HinhAnh as image, sp.SoLuongTon as stock, sp.TinhTrang as status, yt.MaYT FROM YeuThich yt JOIN SanPham sp ON yt.MaSP = sp.MaSP WHERE yt.MaKH = ?",
-            [customerId]
-        );
-        res.json({ success: true, data: rows });
+        const { customerId } = readRequest(req);
+        res.json({ success: true, data: await YeuThichModel.getByCustomer(customerId) });
     } catch (error) {
         next(error);
     }
 });
 
-// 2. POST / — Add to wishlist
+// POST / — Thêm vào yêu thích
 router.post('/', async (req, res, next) => {
     try {
-        const customerId = req.user.customerId || null;
-        const productId = req.body.product_id || null;
-
-        if (!customerId || !productId) {
-            return res.json({ success: false, message: 'Dữ liệu không đầy đủ.' });
-        }
-
-        const [exists] = await pool.query("SELECT * FROM YeuThich WHERE MaKH = ? AND MaSP = ?", [customerId, productId]);
-        if (exists.length > 0) {
-            return res.json({ success: false, message: 'Sản phẩm đã có trong danh sách!' });
-        }
-
-        const [result] = await pool.query("INSERT INTO YeuThich (MaKH, MaSP) VALUES (?, ?)", [customerId, productId]);
-        res.json({ success: true, message: 'Đã thêm vào danh sách yêu thích', wishlist_id: result.insertId });
+        const { customerId, productId } = readRequest(req);
+        const [product] = await pool.query('SELECT MaSP FROM SanPham WHERE MaSP = ?', [productId]);
+        if (!product.length) throw fail(404, 'Không tìm thấy sản phẩm');
+        if (!(await YeuThichModel.add(customerId, productId))) throw fail(409, 'Sản phẩm đã có trong danh sách!');
+        res.json({ success: true, message: 'Đã thêm vào danh sách yêu thích' });
     } catch (error) {
-        res.json({ success: false, message: 'Lỗi: ' + error.message });
+        next(error);
     }
 });
 
-// 3. DELETE / — Remove from wishlist
+// DELETE / — Bỏ khỏi yêu thích
 router.delete('/', async (req, res, next) => {
     try {
-        const customerId = req.user.customerId || null;
-        const productId = req.body.product_id || null;
-
-        if (!customerId || !productId) {
-            return res.json({ success: false, message: 'Dữ liệu không đầy đủ.' });
-        }
-
-        await pool.query("DELETE FROM YeuThich WHERE MaKH = ? AND MaSP = ?", [customerId, productId]);
+        const { customerId, productId } = readRequest(req);
+        await YeuThichModel.remove(customerId, productId);
         res.json({ success: true, message: 'Đã xóa khỏi danh sách yêu thích' });
     } catch (error) {
-        res.json({ success: false, message: 'Lỗi: ' + error.message });
+        next(error);
     }
 });
 

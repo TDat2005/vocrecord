@@ -1,8 +1,11 @@
 const axios = require('axios');
 const crypto = require('crypto');
+const { PAYOS_TIMEOUT_MINUTES } = require('../constants/order');
 
 // Đổi được địa chỉ API (máy chủ PayOS giả khi kiểm thử); mặc định là PayOS thật.
 const PAYOS_API_URL = (process.env.PAYOS_API_URL || 'https://api-merchant.payos.vn').replace(/\/+$/, '');
+// PayOS không trả lời trong 15 giây thì báo lỗi, không để khách chờ mãi (mặc định axios không có giới hạn).
+const REQUEST_TIMEOUT_MS = 15000;
 const authHeaders = () => ({
     'Content-Type': 'application/json',
     'x-client-id': process.env.PAYOS_CLIENT_ID || '',
@@ -13,18 +16,15 @@ class PayOSService {
     static async createPaymentLink(orderCode, amount, description, returnUrl = null, cancelUrl = null) {
         const checksumKey = process.env.PAYOS_CHECKSUM_KEY || '';
 
-        const finalReturnUrl = returnUrl || process.env.PAYOS_RETURN_URL || 'http://localhost:8080/payment-result';
-        const finalCancelUrl = cancelUrl || process.env.PAYOS_CANCEL_URL || 'http://localhost:8080/payment-result';
-
         const data = {
             orderCode: orderCode,
             amount: amount,
             description: description.substring(0, 25), // PayOS allows max 25 chars for description
-            returnUrl: finalReturnUrl,
-            cancelUrl: finalCancelUrl,
+            returnUrl: returnUrl || process.env.PAYOS_RETURN_URL || 'http://localhost:8080/payment-result',
+            cancelUrl: cancelUrl || process.env.PAYOS_CANCEL_URL || 'http://localhost:8080/payment-result',
             // Hết hạn cùng lúc server tự hủy đơn (10 phút) để khách không thể trả tiền cho đơn đã hủy.
             // expiredAt không nằm trong chuỗi ký signature của PayOS.
-            expiredAt: Math.floor(Date.now() / 1000) + 10 * 60
+            expiredAt: Math.floor(Date.now() / 1000) + PAYOS_TIMEOUT_MINUTES * 60
         };
 
         // Create signature (alphabetical order)
@@ -33,7 +33,7 @@ class PayOSService {
         data.signature = signature;
 
         try {
-            const response = await axios.post(`${PAYOS_API_URL}/v2/payment-requests`, data, { headers: authHeaders() });
+            const response = await axios.post(`${PAYOS_API_URL}/v2/payment-requests`, data, { headers: authHeaders(), timeout: REQUEST_TIMEOUT_MS });
 
             const result = response.data;
             if (result.code === '00') {
@@ -51,7 +51,7 @@ class PayOSService {
 
     // Trạng thái link thanh toán trên PayOS (PENDING, PAID, CANCELLED, EXPIRED...).
     static async getPaymentRequest(orderCode) {
-        const response = await axios.get(`${PAYOS_API_URL}/v2/payment-requests/${orderCode}`, { headers: authHeaders(), timeout: 10000 });
+        const response = await axios.get(`${PAYOS_API_URL}/v2/payment-requests/${orderCode}`, { headers: authHeaders(), timeout: REQUEST_TIMEOUT_MS });
         return response.data;
     }
 

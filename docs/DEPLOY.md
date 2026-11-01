@@ -47,6 +47,7 @@ nano .env                  # theo mẫu deploy/compose.env.example
 nano deploy/server.env     # theo mẫu deploy/server.env.example
 ```
 - `MYSQL_ROOT_PASSWORD`: tạo bằng `openssl rand -base64 24`.
+- `MYSQL_APP_USER`, `MYSQL_APP_PASSWORD`: user MySQL riêng cho API, chỉ có quyền đọc/ghi dữ liệu (không tạo/xóa bảng, không phải root). Mật khẩu chỉ gồm chữ và số, tạo bằng `openssl rand -hex 24`. Mỗi lần deploy, workflow tự tạo user này (hoặc cập nhật mật khẩu) bằng `deploy/db-app-user.sh` rồi mới khởi động API. Bỏ trống cả hai thì API dùng root như trước.
 - `JWT_SECRET`: tạo bằng `openssl rand -hex 32`.
 - PayOS: khai báo webhook `https://ngtiendat.id.vn/api/payos/webhook` trên trang my.payos.vn.
 

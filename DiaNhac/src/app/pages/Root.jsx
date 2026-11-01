@@ -1,10 +1,7 @@
-import { useState } from 'react';
 import { Link, Outlet } from 'react-router';
-import { ArrowRight } from 'lucide-react';
 import { AiAssistant } from '../components/AiAssistant';
 import { Header } from '../components/Header';
 import { ScrollToTop } from '../components/ScrollToTop';
-import { useToast } from '../context/ToastContext';
 import '../../styles/pages/root.css';
 
 const FOOTER_LINKS = [
@@ -29,17 +26,6 @@ const FOOTER_LINKS = [
 ];
 
 export function Root() {
-  const toast = useToast();
-  const [email, setEmail] = useState('');
-
-  const handleSubscribe = (event) => {
-    event.preventDefault();
-    if (!email) return;
-    // Chưa có API nhận đăng ký bản tin: chỉ ghi nhận trên giao diện.
-    toast.success('Cảm ơn bạn đã đăng ký nhận tin!');
-    setEmail('');
-  };
-
   return (
     <div className="root-layout">
       <ScrollToTop />
@@ -71,22 +57,6 @@ export function Root() {
                 </ul>
               </div>
             ))}
-
-            <div>
-              <h4 className="footer__heading">Đăng ký nhận tin</h4>
-              <p className="text-muted text-sm">Nhận thông tin về sản phẩm mới và ưu đãi đặc biệt.</p>
-              <form onSubmit={handleSubscribe} className="footer__newsletter">
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(event) => setEmail(event.target.value)}
-                  placeholder="Email của bạn"
-                  aria-label="Email nhận tin"
-                  required
-                />
-                <button type="submit" aria-label="Đăng ký"><ArrowRight size={18} /></button>
-              </form>
-            </div>
           </div>
 
           <div className="footer__bottom">

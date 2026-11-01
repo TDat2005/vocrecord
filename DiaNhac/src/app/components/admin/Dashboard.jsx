@@ -47,7 +47,7 @@ export function Dashboard() {
 
   const exportCsv = async () => {
     try {
-      const ordersData = await api.get('/orders');
+      const ordersData = await api.get('/orders?limit=100');
       const orders = ordersData.success ? ordersData.data || [] : [];
       const user = getUser();
       const now = new Date();
@@ -73,7 +73,7 @@ export function Dashboard() {
           ? stats.topProducts.map((p) => `${csvCell(p.name)},${csvCell(p.artist)},${p.sales || 0},${Number(p.revenue) || 0}`)
           : ['Chưa có dữ liệu']),
         '',
-        '--- ĐƠN HÀNG GẦN ĐÂY ---',
+        '--- 100 ĐƠN HÀNG GẦN NHẤT ---',
         'Mã đơn,Khách hàng,Thời gian đặt,Tổng tiền (VNĐ),Trạng thái,Mã GHN',
         ...orders.map((o) => [
           csvCell(formatOrderCode(o.MaDH)),

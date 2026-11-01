@@ -1,5 +1,6 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../utils/api';
+import { MAX_ORDER_QUANTITY } from '../utils/catalog';
 
 const CartContext = createContext(null);
 const CART_KEY = 'voc_cart';
@@ -23,7 +24,7 @@ function toCartItem(product, quantity) {
     price: Number(product.price) || 0,
     image: product.image,
     stock,
-    quantity: Math.min(Math.max(quantity, 1), stock),
+    quantity: Math.min(Math.max(quantity, 1), stock, MAX_ORDER_QUANTITY),
   };
 }
 
@@ -31,6 +32,9 @@ export function CartProvider({ children }) {
   // Giỏ hàng lưu ở localStorage để không mất khi tải lại trang.
   const [items, setItems] = useState(loadCart);
   const [appliedDiscount, setAppliedDiscount] = useState(null);
+  // Bản giỏ mới nhất để addToCart tính ngay được số lượng thêm được (bấm nhanh 2 lần vẫn đúng).
+  const itemsRef = useRef(items);
+  itemsRef.current = items;
 
   useEffect(() => {
     try {
@@ -65,15 +69,20 @@ export function CartProvider({ children }) {
     return () => { cancelled = true; };
   }, [subtotal, appliedDiscount]);
 
+  // Trả về số lượng thực sự thêm được (0 nếu hết hàng hoặc giỏ đã đủ số lượng tối đa),
+  // để nơi gọi báo đúng thay vì luôn báo "Đã thêm vào giỏ".
   const addToCart = useCallback((product, quantity = 1) => {
-    if ((Number(product.stock) || 0) <= 0) return;
-    setItems((current) => {
-      const existing = current.find((item) => item.id === Number(product.id));
-      if (!existing) return [...current, toCartItem(product, quantity)];
-      return current.map((item) => (item.id === existing.id
-        ? toCartItem(product, existing.quantity + quantity)
-        : item));
-    });
+    if ((Number(product.stock) || 0) <= 0) return 0;
+    const current = itemsRef.current;
+    const existing = current.find((item) => item.id === Number(product.id));
+    const before = existing ? existing.quantity : 0;
+    const next = toCartItem(product, before + quantity);
+    const added = Math.max(next.quantity - before, 0);
+    if (!added) return 0;
+    const updated = existing ? current.map((item) => (item.id === existing.id ? next : item)) : [...current, next];
+    itemsRef.current = updated;
+    setItems(updated);
+    return added;
   }, []);
 
   const removeFromCart = useCallback((id) => {
@@ -86,7 +95,7 @@ export function CartProvider({ children }) {
       return;
     }
     setItems((current) => current.map((item) => (
-      item.id === id ? { ...item, quantity: Math.min(quantity, item.stock) } : item
+      item.id === id ? { ...item, quantity: Math.min(quantity, item.stock, MAX_ORDER_QUANTITY) } : item
     )));
   }, [removeFromCart]);
 

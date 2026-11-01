@@ -204,6 +204,7 @@ vocrecord/
 │   ├── 11_trade_in.sql         # Thu mua & ký gửi đĩa cũ, ví tín dụng
 │   ├── 12_order_lifecycle.sql  # Ngày giao thành công (hạn đổi trả, doanh thu), lưu link PayOS để thanh toán sau
 │   ├── 13_discount_per_customer.sql # Giới hạn số lần mỗi khách dùng một mã giảm giá (mặc định 1)
+│   ├── 14_review_fixes.sql     # Đổi mật khẩu đăng xuất phiên cũ, yêu thích không trùng, sửa giờ hết hạn mã giảm giá, ảnh bằng chứng trả hàng
 │   └── backup_clonevocrecord_latest.sql   # Bản backup đầy đủ dữ liệu mới nhất
 │
 ├── docker-compose.yml          # Cấu hình Docker toàn bộ hệ thống (Web, API, DB)
@@ -328,11 +329,11 @@ SMTP_FROM_NAME=Vọc Records
 
 > CSDL đã chạy từ trước (volume có sẵn) không tự chạy migration mới. Sau khi cập nhật, nạp thủ công theo thứ tự (chạy lại nhiều lần được):
 > ```bash
-> for f in database/09_ai_search.sql database/10_real_covers.sql database/11_trade_in.sql database/12_order_lifecycle.sql database/13_discount_per_customer.sql; do
+> for f in database/09_ai_search.sql database/10_real_covers.sql database/11_trade_in.sql database/12_order_lifecycle.sql database/13_discount_per_customer.sql database/14_review_fixes.sql; do
 >   docker compose exec -T db sh -c 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" --default-character-set=utf8mb4 clonevocrecord' < "$f"
 > done
 > ```
-> Lưu ý: `docker-compose.yml` nạp cả thư mục `database/` khi tạo volume mới, nên các file `backup_*.sql` (chạy sau 09–13 theo thứ tự tên) sẽ ghi đè lại bảng. Tạo volume mới trên máy có file backup thì chạy lại vòng lặp trên sau khi DB khởi tạo xong.
+> Lưu ý: `docker-compose.yml` nạp cả thư mục `database/` khi tạo volume mới, nên các file `backup_*.sql` (chạy sau 09–14 theo thứ tự tên) sẽ ghi đè lại bảng. Tạo volume mới trên máy có file backup thì chạy lại vòng lặp trên sau khi DB khởi tạo xong.
 
 File cơ sở dữ liệu mới nhất được đặt tại: `database/backup_clonevocrecord_latest.sql`
 

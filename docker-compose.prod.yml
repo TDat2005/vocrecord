@@ -7,6 +7,9 @@ services:
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Thiếu MYSQL_ROOT_PASSWORD trong .env}
       MYSQL_DATABASE: clonevocrecord
+      # User riêng cho API (deploy/db-app-user.sh tạo). Bỏ trống thì API dùng root như trước.
+      MYSQL_APP_USER: ${MYSQL_APP_USER:-}
+      MYSQL_APP_PASSWORD: ${MYSQL_APP_PASSWORD:-}
     command: --default-time-zone=+07:00
     volumes:
       - db_data:/var/lib/mysql
@@ -24,6 +27,8 @@ services:
       - ./database/11_trade_in.sql:/docker-entrypoint-initdb.d/11_trade_in.sql:ro
       - ./database/12_order_lifecycle.sql:/docker-entrypoint-initdb.d/12_order_lifecycle.sql:ro
       - ./database/13_discount_per_customer.sql:/docker-entrypoint-initdb.d/13_discount_per_customer.sql:ro
+      - ./database/14_review_fixes.sql:/docker-entrypoint-initdb.d/14_review_fixes.sql:ro
+      - ./deploy/db-app-user.sh:/docker-entrypoint-initdb.d/99_app_user.sh:ro
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p$${MYSQL_ROOT_PASSWORD}"]
       interval: 10s
@@ -38,8 +43,9 @@ services:
     environment:
       DB_HOST: db
       DB_PORT: 3306
-      DB_USER: root
-      DB_PASS: ${MYSQL_ROOT_PASSWORD}
+      # Có MYSQL_APP_USER/MYSQL_APP_PASSWORD trong .env thì API dùng user riêng (chỉ đọc/ghi dữ liệu), không thì root.
+      DB_USER: ${MYSQL_APP_USER:-root}
+      DB_PASS: ${MYSQL_APP_PASSWORD:-${MYSQL_ROOT_PASSWORD}}
       DB_NAME: clonevocrecord
       PORT: 3000
       TZ: Asia/Ho_Chi_Minh

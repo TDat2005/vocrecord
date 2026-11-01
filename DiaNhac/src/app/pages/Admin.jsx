@@ -57,6 +57,9 @@ const NAV_GROUPS = [
 ];
 
 const SECTION_KEY = 'voc_admin_section';
+const readSavedSection = () => {
+  try { return localStorage.getItem(SECTION_KEY); } catch { return null; }
+};
 
 export function Admin() {
   const navigate = useNavigate();
@@ -66,7 +69,7 @@ export function Admin() {
 
   const groups = NAV_GROUPS.filter((group) => !group.adminOnly || user?.role === 'admin');
   const items = groups.flatMap((group) => group.items);
-  const requested = searchParams.get('tab') || searchParams.get('section') || localStorage.getItem(SECTION_KEY);
+  const requested = searchParams.get('tab') || searchParams.get('section') || readSavedSection();
   const active = items.find((item) => item.id === requested) || items[0];
 
   useEffect(() => {
@@ -85,7 +88,7 @@ export function Admin() {
   }
 
   const openSection = (id) => {
-    localStorage.setItem(SECTION_KEY, id);
+    try { localStorage.setItem(SECTION_KEY, id); } catch { /* trình duyệt chặn lưu trữ */ }
     setSearchParams({ tab: id }, { replace: true });
     setSidebarOpen(false);
     window.scrollTo({ top: 0 });

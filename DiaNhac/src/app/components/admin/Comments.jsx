@@ -4,17 +4,23 @@ import { useToast } from '../../context/ToastContext';
 import { api, NETWORK_ERROR } from '../../utils/api';
 import { formatDateTime } from '../../utils/format';
 import { getCommentStatus } from '../../utils/status';
-import { StatusBadge } from '../ui';
+import { Pagination, StatusBadge } from '../ui';
 import { PageHeader } from './PageHeader';
 
 export function Comments() {
   const toast = useToast();
   const [comments, setComments] = useState([]);
   const [drafts, setDrafts] = useState({});
+  const [paging, setPaging] = useState({ page: 1, total: 0, limit: 50 });
+  const [page, setPage] = useState(1);
 
   const load = useCallback(() => {
-    api.get('/comments/manage').then((data) => { if (data.success) setComments(data.data || []); }).catch(() => toast.error(NETWORK_ERROR));
-  }, [toast]);
+    api.get(`/comments/manage?page=${page}&limit=50`).then((data) => {
+      if (!data.success) return;
+      setComments(data.data || []);
+      setPaging({ page: data.page || 1, total: data.total ?? 0, limit: data.limit || 50 });
+    }).catch(() => toast.error(NETWORK_ERROR));
+  }, [toast, page]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -93,6 +99,7 @@ export function Comments() {
             </tbody>
           </table>
         </div>
+        <Pagination page={paging.page} total={paging.total} limit={paging.limit} onChange={setPage} />
       </section>
     </>
   );

@@ -1,9 +1,9 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import { SlidersHorizontal, X } from 'lucide-react';
 import { ProductCard } from '../components/ProductCard';
-import { EmptyState } from '../components/ui';
-import { SORT_OPTIONS, sortProducts, useProducts } from '../hooks/useProducts';
+import { EmptyState, LoadMore } from '../components/ui';
+import { SORT_OPTIONS, useProducts } from '../hooks/useProducts';
 import { MUSIC_GENRES, PRODUCT_CATEGORIES } from '../utils/catalog';
 import '../../styles/pages/shop.css';
 
@@ -29,28 +29,19 @@ function FilterGroup({ title, name, options, value, onChange }) {
 export function Shop() {
   const [searchParams] = useSearchParams();
   const searchQuery = searchParams.get('search') || '';
-  const { products, loading, error } = useProducts();
   const [category, setCategory] = useState(ALL);
   const [genre, setGenre] = useState(ALL);
   const [itemType, setItemType] = useState(searchParams.get('loai') === 'cu' ? 'Đĩa cũ' : ALL);
   const [sortBy, setSortBy] = useState('name');
   const [showFilters, setShowFilters] = useState(false);
-
-  const filtered = useMemo(() => {
-    const keyword = searchQuery.toLowerCase();
-    const matches = products.filter((product) => {
-      const productCategory = product.category || product.genre || '';
-      const musicGenre = String(product.music_genre || '').toUpperCase();
-      const matchesCategory = category === ALL || productCategory === category;
-      const matchesGenre = genre === ALL || musicGenre === genre;
-      const matchesType = itemType === ALL || (product.item_type || 'moi') === ITEM_TYPES[itemType];
-      const matchesSearch = !keyword
-        || String(product.title).toLowerCase().includes(keyword)
-        || String(product.artist || '').toLowerCase().includes(keyword);
-      return matchesCategory && matchesGenre && matchesType && matchesSearch;
-    });
-    return sortProducts(matches, sortBy);
-  }, [products, category, genre, itemType, searchQuery, sortBy]);
+  // Lọc và sắp xếp ở server; trang chỉ hiển thị.
+  const { products, total, loading, loadingMore, error, loadMore } = useProducts({
+    category: category === ALL ? null : category,
+    genre: genre === ALL ? null : genre,
+    item_type: itemType === ALL ? null : ITEM_TYPES[itemType],
+    search: searchQuery,
+    sort: sortBy,
+  });
 
   const hasFilters = category !== ALL || genre !== ALL || itemType !== ALL;
   const resetFilters = () => {
@@ -66,7 +57,7 @@ export function Shop() {
           <h1 className="page-title">{searchQuery ? `Kết quả cho “${searchQuery}”` : 'Cửa hàng'}</h1>
           <p className="page-subtitle">
             {searchQuery
-              ? <>Tìm thấy {filtered.length} sản phẩm · <Link to="/shop" className="link-underline">Xóa tìm kiếm</Link></>
+              ? <>Tìm thấy {total} sản phẩm · <Link to="/shop" className="link-underline">Xóa tìm kiếm</Link></>
               : 'Khám phá toàn bộ đĩa than, cassette, mâm đĩa và phụ kiện.'}
           </p>
         </div>
@@ -93,7 +84,7 @@ export function Shop() {
               <button type="button" className="btn btn--secondary btn--sm collection__filter-toggle" onClick={() => setShowFilters(true)}>
                 <SlidersHorizontal size={16} /> Bộ lọc
               </button>
-              <span className="text-muted text-sm">{filtered.length} sản phẩm</span>
+              <span className="text-muted text-sm">{total} sản phẩm</span>
               <label className="collection__sort">
                 <span className="text-muted text-sm">Sắp xếp</span>
                 <select value={sortBy} onChange={(event) => setSortBy(event.target.value)} className="select select--sm">
@@ -106,16 +97,19 @@ export function Shop() {
               <p className="loading-text">Đang tải sản phẩm...</p>
             ) : error ? (
               <p className="loading-text">{error}</p>
-            ) : filtered.length === 0 ? (
+            ) : products.length === 0 ? (
               <EmptyState title="Không tìm thấy sản phẩm phù hợp" action={hasFilters && (
                 <button type="button" className="btn btn--secondary" onClick={resetFilters}>Xóa bộ lọc</button>
               )}>
                 Thử đổi từ khóa hoặc bộ lọc khác.
               </EmptyState>
             ) : (
-              <div className="product-grid">
-                {filtered.map((product) => <ProductCard key={product.id} product={product} quickAdd />)}
-              </div>
+              <>
+                <div className="product-grid">
+                  {products.map((product) => <ProductCard key={product.id} product={product} quickAdd />)}
+                </div>
+                <LoadMore shown={products.length} total={total} loading={loadingMore} onClick={loadMore} />
+              </>
             )}
           </div>
         </div>

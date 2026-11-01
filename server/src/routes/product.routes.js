@@ -1,18 +1,31 @@
 const express = require('express');
 const router = express.Router();
+const pool = require('../config/database');
 const SanPhamModel = require('../models/sanpham.model');
+const { fail } = require('../utils/http');
 const { authenticate, requireRole } = require('../middleware/auth.middleware');
 
 const editor = [authenticate, requireRole('admin', 'nhanvien')];
 
-// GET / — List products with optional ?category= and ?search= filters
+// GET / — Danh sách sản phẩm đang bán.
+// Lọc: ?category= (tên danh mục), ?genre= (thể loại nhạc), ?item_type=moi|cu, ?search= (tên, nghệ sĩ), ?in_stock=1, ?exclude=<id>
+// Sắp xếp: ?sort=newest|name|price-low|price-high|year. Phân trang: ?page=, ?limit= (tối đa 100). Trả kèm total.
 router.get('/', async (req, res, next) => {
     try {
-        const { category, search } = req.query;
         const page = Math.max(Number.parseInt(req.query.page, 10) || 1, 1);
         const limit = Math.min(Math.max(Number.parseInt(req.query.limit, 10) || 100, 1), 100);
-        const products = await SanPhamModel.getAll(category, search, limit, (page - 1) * limit);
-        res.json({ success: true, data: products });
+        const { rows, total } = await SanPhamModel.search({
+            category: req.query.category ? String(req.query.category) : null,
+            genre: req.query.genre ? String(req.query.genre) : null,
+            itemType: ['moi', 'cu'].includes(req.query.item_type) ? req.query.item_type : null,
+            search: req.query.search ? String(req.query.search).trim().slice(0, 100) : null,
+            inStock: ['1', 'true'].includes(String(req.query.in_stock)),
+            excludeId: Number.parseInt(req.query.exclude, 10) || null,
+            sort: SanPhamModel.SORTS.includes(req.query.sort) ? req.query.sort : 'newest',
+            limit,
+            offset: (page - 1) * limit,
+        });
+        res.json({ success: true, data: rows, total, page, limit });
     } catch (error) {
         next(error);
     }
@@ -32,18 +45,14 @@ router.get('/categories', async (req, res, next) => {
 router.get('/:id', async (req, res, next) => {
     try {
         const product = await SanPhamModel.getById(req.params.id);
-        if (product) {
-            product.ai_keywords = await SanPhamModel.getAiKeywords(product.id);
-            res.json({ success: true, data: product });
-        } else {
-            res.json({ success: false, message: 'Không tìm thấy sản phẩm' });
-        }
+        if (!product) throw fail(404, 'Không tìm thấy sản phẩm');
+        product.ai_keywords = await SanPhamModel.getAiKeywords(product.id);
+        res.json({ success: true, data: product });
     } catch (error) {
         next(error);
     }
 });
 
-const pool = require('../config/database');
 const PRODUCT_STATUSES = ['conhang', 'saphethang', 'hethang', 'preorder', 'ngungkinhdoanh'];
 
 // Đọc và kiểm tra dữ liệu sản phẩm. Khi sửa, trường không gửi lên giữ nguyên giá trị hiện tại
@@ -116,7 +125,7 @@ router.put('/:id', ...editor, async (req, res, next) => {
         const hasStockBefore = body.stock_before !== undefined && body.stock_before !== null && body.stock_before !== '';
         const directStock = body.stock !== undefined && !hasStockBefore ? p.stock : null;
         const success = await SanPhamModel.update(id, p.title, p.artist, p.genre, p.price, directStock, p.description, p.image, p.year, p.status, maDM, p.musicGenre, p.format, p.condition, p.packageInfo, p.tracklist);
-        if (!success) return res.json({ success: false, message: 'Lỗi cập nhật sản phẩm' });
+        if (!success) throw fail(404, 'Không tìm thấy sản phẩm');
 
         let stockNow = directStock ?? Number(current.stock);
         if (hasStockBefore && body.stock !== undefined) {
@@ -134,16 +143,10 @@ router.put('/:id', ...editor, async (req, res, next) => {
 // DELETE /:id — Delete product
 router.delete('/:id', ...editor, async (req, res, next) => {
     try {
-        const id = req.params.id;
-        if (!id) {
-            return res.json({ success: false, message: 'ID không hợp lệ' });
-        }
-        const success = await SanPhamModel.delete(id);
-        if (success) {
-            res.json({ success: true, message: 'Đã chuyển sản phẩm sang Ngừng kinh doanh (giữ lịch sử đơn hàng)' });
-        } else {
-            res.json({ success: false, message: 'Lỗi xóa sản phẩm' });
-        }
+        const product = await SanPhamModel.getById(req.params.id);
+        if (!product || !(await SanPhamModel.delete(req.params.id))) throw fail(404, 'Không tìm thấy sản phẩm');
+        logActivity(req, 'Ngừng kinh doanh sản phẩm', `#${product.id} ${product.title}`);
+        res.json({ success: true, message: 'Đã chuyển sản phẩm sang Ngừng kinh doanh (giữ lịch sử đơn hàng)' });
     } catch (error) {
         next(error);
     }

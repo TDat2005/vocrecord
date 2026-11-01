@@ -114,5 +114,10 @@ export const TRADEIN_STATUS_OPTIONS = Object.entries(TRADEIN_STATUS).map(([value
 export const ORDER_STATUS_OPTIONS = Object.entries(ORDER_STATUS).map(([value, { label }]) => ({ value, label }));
 export const RETURN_STATUS_OPTIONS = Object.entries(RETURN_STATUS).map(([value, { label }]) => ({ value, label }));
 
+// Bước kế tiếp của yêu cầu trả hàng (giống server): moi -> dangxuly -> chapnhan/tuchoi -> danghoan -> hoantat.
+const RETURN_NEXT = { moi: ['dangxuly'], dangxuly: ['chapnhan', 'tuchoi'], chapnhan: ['danghoan'], danghoan: ['hoantat'] };
+export const returnStatusChoices = (current) => RETURN_STATUS_OPTIONS
+  .filter((option) => option.value === current || (RETURN_NEXT[current] || []).includes(option.value));
+
 // Khách chỉ tự hủy được khi đơn chưa giao cho đơn vị vận chuyển.
 export const CANCELLABLE_STATUSES = ['choxacnhan', 'daxacnhan', 'dangchuanbihang'];

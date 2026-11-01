@@ -6,6 +6,7 @@ import { useCart } from '../context/CartContext';
 import { useToast } from '../context/ToastContext';
 import { api, NETWORK_ERROR } from '../utils/api';
 import { getToken } from '../utils/auth';
+import { addToCartMessage } from '../utils/catalog';
 import { formatPrice } from '../utils/format';
 import { SafeImage } from './SafeImage';
 import '../../styles/components/assistant.css';
@@ -155,8 +156,8 @@ export function AiAssistant() {
   });
 
   const addProduct = (product, quantity = 1) => {
-    addToCart(product, quantity);
-    toast.success(`Đã thêm ${quantity > 1 ? `${quantity} × ` : ''}"${product.title}" vào giỏ hàng`);
+    const { ok, message } = addToCartMessage(product, quantity, addToCart(product, quantity));
+    if (ok) toast.success(message); else toast.error(message);
   };
 
   // Không dùng được mô hình AI (server chưa có API key, hết lượt miễn phí, mất mạng):

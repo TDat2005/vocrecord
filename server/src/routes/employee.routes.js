@@ -1,18 +1,49 @@
 const express = require('express');
 const router = express.Router();
+const bcrypt = require('bcryptjs');
 const pool = require('../config/database');
 const NhanVienModel = require('../models/nhanvien.model');
 const TaiKhoanModel = require('../models/taikhoan.model');
-const bcrypt = require('bcryptjs');
+const { withTransaction } = require('../utils/db');
+const { fail } = require('../utils/http');
+const { MIN_PASSWORD } = require('../utils/validate');
+const { STAFF_ROLES } = require('../constants/order');
 const { authenticate, requireRole, forgetAccountStatus } = require('../middleware/auth.middleware');
 
 router.use(authenticate, requireRole('admin'));
 
+// Đọc và kiểm tra dữ liệu nhân viên. Vai trò chỉ được là admin/nhanvien (trước đây nhận mọi chuỗi gửi lên).
+function readEmployee(body, { isNew }) {
+    const employee = {
+        username: String(body.username || '').trim(),
+        password: String(body.password || ''),
+        name: String(body.name || '').trim(),
+        position: String(body.position || '').trim(),
+        role: body.role || 'nhanvien',
+    };
+    if (isNew && (!employee.username || employee.username.length > 100)) throw fail(400, 'Tên đăng nhập là bắt buộc (tối đa 100 ký tự)');
+    if (isNew && !employee.password) throw fail(400, 'Vui lòng nhập mật khẩu');
+    if (employee.password && employee.password.length < MIN_PASSWORD) throw fail(400, `Mật khẩu phải có ít nhất ${MIN_PASSWORD} ký tự`);
+    if (!employee.name || employee.name.length > 100) throw fail(400, 'Họ tên là bắt buộc (tối đa 100 ký tự)');
+    if (!STAFF_ROLES.includes(employee.role)) throw fail(400, 'Vai trò không hợp lệ');
+    return employee;
+}
+
+// Tài khoản lấy theo mã nhân viên trong đường dẫn, không tin account_id gửi lên
+// (trước đây gửi account_id của khách hàng là đổi được vai trò/khóa tài khoản khách).
+async function findEmployee(id, connection = pool) {
+    const [[employee]] = await connection.query(
+        'SELECT nv.MaNV, nv.MaTK, tk.VaiTro FROM NhanVien nv JOIN TaiKhoan tk ON tk.MaTK = nv.MaTK WHERE nv.MaNV = ?',
+        [id]
+    );
+    if (!employee) throw fail(404, 'Không tìm thấy nhân viên');
+    return employee;
+}
+
 // GET /
 router.get('/', async (req, res, next) => {
     try {
-        const data = await NhanVienModel.getAll();
-        return res.json({ success: true, data });
+        return res.json({ success: true, data: await NhanVienModel.getAll() });
     } catch (error) {
         next(error);
     }
@@ -20,102 +51,55 @@ router.get('/', async (req, res, next) => {
 
 // POST /
 router.post('/', async (req, res, next) => {
-    let connection;
     try {
-        const username = (req.body.username || '').trim();
-        const password = req.body.password || '';
-        const name = (req.body.name || '').trim();
-        const position = (req.body.position || '').trim();
-        const role = req.body.role || 'nhanvien';
+        const employee = readEmployee(req.body, { isNew: true });
+        if (await TaiKhoanModel.findByUsername(employee.username)) throw fail(409, 'Tên đăng nhập đã tồn tại!');
 
-        if (!username || !password || !name) {
-            return res.json({ success: false, message: 'Vui lòng điền đủ thông tin bắt buộc (Username, Mật khẩu, Họ tên)' });
-        }
-
-        const existingUser = await TaiKhoanModel.findByUsername(username);
-        if (existingUser) {
-            return res.json({ success: false, message: 'Tên đăng nhập đã tồn tại!' });
-        }
-
-        connection = await pool.getConnection();
-        await connection.beginTransaction();
-
-        const hashedPassword = await bcrypt.hash(password, 10);
-        const maTK = await NhanVienModel.createAuth(username, hashedPassword, role, connection);
-        await NhanVienModel.createProfile(name, position, maTK, connection);
-
-        await connection.commit();
+        const hashedPassword = await bcrypt.hash(employee.password, 10);
+        await withTransaction(async (connection) => {
+            const maTK = await NhanVienModel.createAuth(employee.username, hashedPassword, employee.role, connection);
+            await NhanVienModel.createProfile(employee.name, employee.position, maTK, connection);
+        });
         return res.json({ success: true, message: 'Thêm nhân viên thành công!' });
     } catch (error) {
-        if (connection) {
-            try { await connection.rollback(); } catch (e) { console.error('Rollback error:', e); }
-        }
-        console.error('Lỗi thêm nhân viên:', error);
-        return res.json({ success: false, message: error.message });
-    } finally {
-        if (connection) connection.release();
+        if (error.code === 'ER_DUP_ENTRY') return next(fail(409, 'Tên đăng nhập đã tồn tại!'));
+        next(error);
     }
 });
 
-// PUT /:id
+// PUT /:id (id = MaNV)
 router.put('/:id', async (req, res, next) => {
-    let connection;
     try {
-        const id = req.params.id || 0;
-        const accountId = req.body.account_id || 0;
-        const name = (req.body.name || '').trim();
-        const position = (req.body.position || '').trim();
-        const role = req.body.role || 'nhanvien';
-        const password = req.body.password || '';
-
-        if (!id || !accountId || !name) {
-            return res.json({ success: false, message: 'Dữ liệu không hợp lệ' });
-        }
-
-        connection = await pool.getConnection();
-        await connection.beginTransaction();
-
-        await NhanVienModel.updateProfile(id, name, position, connection);
-        await NhanVienModel.updateAuth(accountId, role, connection);
-
-        if (password) {
-            const hashedPassword = await bcrypt.hash(password, 10);
-            await NhanVienModel.updatePassword(accountId, hashedPassword, connection);
-        }
-
-        await connection.commit();
+        const data = readEmployee(req.body, { isNew: false });
+        const hashedPassword = data.password ? await bcrypt.hash(data.password, 10) : null;
+        const accountId = await withTransaction(async (connection) => {
+            const employee = await findEmployee(req.params.id, connection);
+            // Admin tự hạ quyền mình thì mất luôn quyền vào trang này.
+            if (Number(employee.MaTK) === Number(req.user.id) && data.role !== 'admin') {
+                throw fail(400, 'Không thể tự hạ quyền tài khoản đang đăng nhập');
+            }
+            await NhanVienModel.updateProfile(employee.MaNV, data.name, data.position, connection);
+            await NhanVienModel.updateAuth(employee.MaTK, data.role, connection);
+            if (hashedPassword) await TaiKhoanModel.updatePassword(employee.MaTK, hashedPassword, connection);
+            return employee.MaTK;
+        });
+        forgetAccountStatus(accountId); // vai trò/mật khẩu mới có hiệu lực ngay với phiên đang đăng nhập
         return res.json({ success: true, message: 'Cập nhật thành công!' });
     } catch (error) {
-        if (connection) {
-            try { await connection.rollback(); } catch (e) { console.error('Rollback error:', e); }
-        }
-        console.error('Lỗi cập nhật nhân viên:', error);
-        return res.json({ success: false, message: 'Lỗi: ' + error.message });
-    } finally {
-        if (connection) connection.release();
+        next(error);
     }
 });
 
-// PUT /:id/toggle
+// PUT /:id/toggle (id = MaNV)
 router.put('/:id/toggle', async (req, res, next) => {
     try {
-        const accountId = req.body.account_id || 0;
-        const status = req.body.status !== undefined ? parseInt(req.body.status) : 1;
+        const status = Number(req.body.status) === 0 ? 0 : 1;
+        const employee = await findEmployee(req.params.id);
+        if (Number(employee.MaTK) === Number(req.user.id) && status === 0) throw fail(400, 'Không thể tự khóa tài khoản đang đăng nhập');
 
-        if (!accountId) {
-            return res.json({ success: false, message: 'Thiếu ID Tài khoản' });
-        }
-        if (Number(accountId) === Number(req.user.id) && status === 0) {
-            return res.json({ success: false, message: 'Không thể tự khóa tài khoản đang đăng nhập' });
-        }
-
-        const success = await NhanVienModel.toggleStatus(accountId, status);
-        forgetAccountStatus(accountId); // khóa có hiệu lực ngay với phiên đang đăng nhập
-        if (success) {
-            return res.json({ success: true, message: status === 1 ? 'Đã mở khóa tài khoản!' : 'Đã khóa tài khoản!' });
-        } else {
-            return res.json({ success: false, message: 'Lỗi cập nhật trạng thái' });
-        }
+        await NhanVienModel.toggleStatus(employee.MaTK, status);
+        forgetAccountStatus(employee.MaTK); // khóa có hiệu lực ngay với phiên đang đăng nhập
+        return res.json({ success: true, message: status === 1 ? 'Đã mở khóa tài khoản!' : 'Đã khóa tài khoản!' });
     } catch (error) {
         next(error);
     }

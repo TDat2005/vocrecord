@@ -8,7 +8,8 @@ import { useToast } from '../context/ToastContext';
 import { api, NETWORK_ERROR } from '../utils/api';
 import { useCurrentUser } from '../utils/auth';
 import { formatPrice } from '../utils/format';
-import { photoToDataUrl, percent, usePolicy } from '../utils/tradein';
+import { photoToDataUrl } from '../utils/image';
+import { percent, usePolicy, withCreditBonus } from '../utils/tradein';
 import '../../styles/pages/tradein.css';
 
 const EMPTY_FORM = { title: '', artist: '', format: 'vinyl', self_grade: '' };
@@ -73,7 +74,11 @@ function AddRecordForm({ policy, onAdded }) {
   const [submitting, setSubmitting] = useState(false);
   const maxPhotos = policy?.maxPhotosPerItem || 4;
 
-  useEffect(() => () => photos.forEach((photo) => URL.revokeObjectURL(photo.preview)), [photos]);
+  // Thu hồi URL ảnh xem trước khi bỏ ảnh hoặc rời trang. Trước đây hàm dọn chạy mỗi lần danh sách ảnh đổi
+  // và thu hồi cả ảnh vẫn đang hiển thị.
+  const previewsRef = useRef([]);
+  previewsRef.current = photos.map((photo) => photo.preview);
+  useEffect(() => () => previewsRef.current.forEach((url) => URL.revokeObjectURL(url)), []);
 
   const update = (field) => (event) => setForm((current) => ({ ...current, [field]: event.target.value }));
 
@@ -90,7 +95,10 @@ function AddRecordForm({ policy, onAdded }) {
     }
   };
 
-  const removePhoto = (index) => setPhotos((current) => current.filter((_, i) => i !== index));
+  const removePhoto = (index) => setPhotos((current) => {
+    URL.revokeObjectURL(current[index].preview);
+    return current.filter((_, i) => i !== index);
+  });
 
   const submit = async (event) => {
     event.preventDefault();
@@ -105,6 +113,7 @@ function AddRecordForm({ policy, onAdded }) {
       }
       onAdded(data.data);
       setForm(EMPTY_FORM);
+      photos.forEach((photo) => URL.revokeObjectURL(photo.preview));
       setPhotos([]);
       toast.success(`AI đã thẩm định "${data.data.title}"`);
     } catch {
@@ -273,7 +282,7 @@ export function SellRecords() {
                 <>
                   <div className="summary-row"><span className="text-muted">Số đĩa</span><span>{items.length}</span></div>
                   <div className="summary-row"><span className="text-muted">Ước tính bán đứt</span><span>{formatPrice(totalBuy)}</span></div>
-                  {policy && <div className="summary-row"><span className="text-muted">Nếu nhận vào ví (+{percent(policy.creditBonus)})</span><span>{formatPrice(Math.round(totalBuy * (1 + policy.creditBonus) / 10000) * 10000)}</span></div>}
+                  {policy && <div className="summary-row"><span className="text-muted">Nếu nhận vào ví (+{percent(policy.creditBonus)})</span><span>{formatPrice(withCreditBonus(policy, totalBuy))}</span></div>}
                   <div className="summary-row"><span className="text-muted">Ước tính giá ký gửi</span><span>{formatPrice(totalList)}</span></div>
                 </>
               )}

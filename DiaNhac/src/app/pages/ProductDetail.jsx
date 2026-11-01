@@ -9,6 +9,7 @@ import { SafeImage } from '../components/SafeImage';
 import { Badge, EmptyState, QuantitySelector } from '../components/ui';
 import { api, NETWORK_ERROR } from '../utils/api';
 import { getToken } from '../utils/auth';
+import { addToCartMessage } from '../utils/catalog';
 import { formatDate, formatPrice } from '../utils/format';
 import '../../styles/pages/product-detail.css';
 
@@ -16,7 +17,6 @@ const PURCHASE_NOTES = [
   <>Vui lòng thanh toán 100% đơn hàng có <strong>sản phẩm pre-order</strong>.</>,
   <>Giá sản phẩm <strong>pre-order</strong> cập nhật hàng tuần, Vọc Records sẽ liên hệ nếu có chênh lệch.</>,
   <>Vận chuyển: sản phẩm <strong>còn hàng 1–5 ngày</strong>, sản phẩm <strong>pre-order 2–5 tuần</strong>.</>,
-  <>Sản phẩm giá <strong>0đ</strong> vui lòng <strong>liên hệ</strong> để đặt hàng.</>,
   <><strong>Không hủy / hoàn tiền</strong> sản phẩm pre-order.</>,
   <>Khách hàng có thể <strong>hủy đơn</strong> nếu cửa hàng chưa gửi cho đơn vị vận chuyển.</>,
 ];
@@ -118,10 +118,9 @@ export function ProductDetail() {
         const product = data.success ? data.data : null;
         setRecord(product);
         if (!product) return;
-        api.get(`/products?category=${encodeURIComponent(product.genre || '')}`).then((list) => {
-          if (!cancelled && list.success) {
-            setRelated((list.data || []).filter((item) => String(item.id) !== String(id)).slice(0, 4));
-          }
+        const params = new URLSearchParams({ category: product.genre || '', exclude: String(product.id), limit: '4' });
+        api.get(`/products?${params}`).then((list) => {
+          if (!cancelled && list.success) setRelated(list.data || []);
         }).catch(() => {});
       })
       .catch(() => {
@@ -157,10 +156,11 @@ export function ProductDetail() {
   const youtubeUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(youtubeQuery.trim())}`;
 
   const handleAddToCart = () => {
-    addToCart(record, quantity);
-    toast.success(`Đã thêm ${quantity} × "${record.title}" vào giỏ hàng`);
+    const { ok, message } = addToCartMessage(record, quantity, addToCart(record, quantity));
+    if (ok) toast.success(message); else toast.error(message);
   };
 
+  // Mua ngay: sản phẩm đã có đủ trong giỏ thì vẫn chuyển sang thanh toán.
   const handleBuyNow = () => {
     addToCart(record, quantity);
     navigate('/checkout');

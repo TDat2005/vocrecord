@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, Navigate, useParams } from 'react-router';
-import { ArrowLeft, Check, QrCode, Truck } from 'lucide-react';
+import { ArrowLeft, Check, ImagePlus, QrCode, Truck, X } from 'lucide-react';
 import { useToast } from '../context/ToastContext';
 import { useOrderCancel } from '../components/OrderCancel';
 import { PayosPaymentModal } from '../components/PayosPaymentModal';
@@ -9,6 +9,7 @@ import { EmptyState, StatusBadge } from '../components/ui';
 import { api, NETWORK_ERROR } from '../utils/api';
 import { useCurrentUser } from '../utils/auth';
 import { formatDateTime, formatPrice } from '../utils/format';
+import { photoToDataUrl } from '../utils/image';
 import {
   CANCELLABLE_STATUSES, ORDER_STEPS, RETURN_REASONS,
   getOrderStatus, getPaymentStatus, getRefundStatus, getReturnStatus,
@@ -40,26 +41,77 @@ function OrderTimeline({ status }) {
   );
 }
 
-function ReturnRequestCard({ order, items, request, onCreated }) {
+// Trả hàng: khách chọn món và số lượng muốn trả (server kiểm tra lại số còn trả được và tính tiền hoàn,
+// đã trừ phần mã giảm giá). Hiện mọi yêu cầu đã gửi cho đơn này; yêu cầu cũ bị từ chối thì được gửi yêu cầu mới.
+const MAX_RETURN_PHOTOS = 4; // giống giới hạn ở server (return.routes.js)
+
+function ReturnRequestCard({ orderId, requests, onCreated }) {
   const toast = useToast();
+  const [eligibility, setEligibility] = useState(null);
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({ reason: 'hang_loi', description: '', evidence: '' });
+  const [quantities, setQuantities] = useState({});
+  const [photos, setPhotos] = useState([]); // [{ preview, dataUrl }]
   const [submitting, setSubmitting] = useState(false);
+  const fileRef = useRef(null);
+  const previewsRef = useRef([]);
+  previewsRef.current = photos.map((photo) => photo.preview);
+  useEffect(() => () => previewsRef.current.forEach((url) => URL.revokeObjectURL(url)), []);
+
+  const addPhotos = async (event) => {
+    const files = [...(event.target.files || [])].filter((file) => file.type.startsWith('image/'));
+    event.target.value = '';
+    const room = MAX_RETURN_PHOTOS - photos.length;
+    if (files.length > room) toast.error(`Tối đa ${MAX_RETURN_PHOTOS} ảnh bằng chứng`);
+    try {
+      const added = await Promise.all(files.slice(0, room).map(async (file) => ({ preview: URL.createObjectURL(file), dataUrl: await photoToDataUrl(file) })));
+      setPhotos((current) => [...current, ...added]);
+    } catch {
+      toast.error('Không đọc được ảnh, bạn thử ảnh khác nhé');
+    }
+  };
+
+  const removePhoto = (index) => setPhotos((current) => {
+    URL.revokeObjectURL(current[index].preview);
+    return current.filter((_, i) => i !== index);
+  });
+
+  useEffect(() => {
+    let cancelled = false;
+    api.get(`/returns/order/${orderId}`)
+      .then((data) => { if (!cancelled) setEligibility(data.success ? data.data : null); })
+      .catch(() => { if (!cancelled) setEligibility(null); });
+    return () => { cancelled = true; };
+  }, [orderId, requests.length]);
+
+  const returnable = (eligibility?.items || []).filter((item) => item.returnable > 0);
+  const chosen = returnable.filter((item) => quantities[item.detail_id] > 0);
+  const estimate = chosen.reduce((sum, item) => sum + item.unit_refund * quantities[item.detail_id], 0);
+
+  const startRequest = () => {
+    setQuantities(Object.fromEntries(returnable.map((item) => [item.detail_id, item.returnable])));
+    setOpen(true);
+  };
 
   const handleSubmit = async (event) => {
     event.preventDefault();
-    if (!form.description.trim()) {
-      toast.error('Vui lòng mô tả vấn đề của sản phẩm.');
+    if (form.description.trim().length < 10) {
+      toast.error('Vui lòng mô tả vấn đề của sản phẩm (ít nhất 10 ký tự).');
+      return;
+    }
+    if (chosen.length === 0) {
+      toast.error('Vui lòng chọn ít nhất một sản phẩm muốn trả.');
       return;
     }
     setSubmitting(true);
     try {
       const data = await api.post('/returns', {
-        order_id: order.MaDH,
+        order_id: orderId,
         reason: form.reason,
-        description: form.description,
-        evidence: form.evidence,
-        items: items.map((item) => ({ detail_id: item.MaCTDH, quantity: item.SoLuong })),
+        description: form.description.trim(),
+        evidence: form.evidence.trim(),
+        items: chosen.map((item) => ({ detail_id: item.detail_id, quantity: quantities[item.detail_id] })),
+        photos: photos.map((photo) => photo.dataUrl),
       });
       if (!data.success) {
         toast.error(data.message || 'Không thể gửi yêu cầu trả hàng');
@@ -67,7 +119,10 @@ function ReturnRequestCard({ order, items, request, onCreated }) {
       }
       toast.success('Đã gửi yêu cầu trả hàng. Cửa hàng sẽ liên hệ xác nhận.');
       setOpen(false);
-      onCreated({ status: 'moi', reason: form.reason, description: form.description });
+      setForm({ reason: 'hang_loi', description: '', evidence: '' });
+      photos.forEach((photo) => URL.revokeObjectURL(photo.preview));
+      setPhotos([]);
+      onCreated();
     } catch {
       toast.error(NETWORK_ERROR);
     } finally {
@@ -75,24 +130,60 @@ function ReturnRequestCard({ order, items, request, onCreated }) {
     }
   };
 
+  const blocker = eligibility?.blocker || (eligibility && returnable.length === 0 ? 'Các sản phẩm của đơn đã được yêu cầu trả hết.' : null);
+
   return (
     <section className="card">
       <h2 className="card__title">Trả hàng / báo lỗi</h2>
-      <div className="card__body-gap">
-        {request ? (
-          <div className="inline">
-            <span>Yêu cầu trả hàng ({RETURN_REASONS[request.reason] || request.reason}):</span>
-            <StatusBadge status={getReturnStatus(request.status)} />
+      <div className="card__body-gap stack">
+        {requests.map((request) => (
+          <div key={request.id} className="stack stack--sm">
+            <div className="inline">
+              <span>YCT-{request.id} · {RETURN_REASONS[request.reason] || request.reason}:</span>
+              <StatusBadge status={getReturnStatus(request.status)} />
+              <span className="text-sm text-muted">Hoàn dự kiến {formatPrice(request.refund_amount)}</span>
+            </div>
+            {request.admin_note && <p className="text-sm text-muted">Cửa hàng: {request.admin_note}</p>}
           </div>
-        ) : order.TrangThai !== 'hoanthanh' ? (
-          <p className="text-muted">Bạn có thể gửi yêu cầu trả hàng sau khi đơn đã giao thành công.</p>
+        ))}
+
+        {!eligibility ? null : blocker ? (
+          requests.length === 0 && <p className="text-muted">{blocker}</p>
         ) : !open ? (
           <div className="stack stack--sm">
-            <p className="text-muted">Nếu sản phẩm lỗi, sai hàng hoặc hư hỏng khi vận chuyển, bạn có thể gửi yêu cầu trong thời hạn đổi trả.</p>
-            <div><button type="button" className="btn btn--secondary" onClick={() => setOpen(true)}>Tạo yêu cầu trả hàng</button></div>
+            <p className="text-muted">Nếu sản phẩm lỗi, sai hàng hoặc hư hỏng khi vận chuyển, bạn có thể gửi yêu cầu trong {eligibility.window_days} ngày kể từ khi nhận hàng.</p>
+            <div><button type="button" className="btn btn--secondary" onClick={startRequest}>Tạo yêu cầu trả hàng</button></div>
           </div>
         ) : (
           <form onSubmit={handleSubmit} className="form">
+            <fieldset className="field">
+              <legend className="label">Sản phẩm muốn trả</legend>
+              {returnable.map((item) => (
+                <div key={item.detail_id} className="inline inline--between">
+                  <label className="checkbox-label">
+                    <input
+                      type="checkbox"
+                      checked={quantities[item.detail_id] > 0}
+                      onChange={(e) => setQuantities({ ...quantities, [item.detail_id]: e.target.checked ? item.returnable : 0 })}
+                    />
+                    <span>{item.title} <span className="text-muted">· {formatPrice(item.unit_refund)}/cái</span></span>
+                  </label>
+                  {item.returnable > 1 && quantities[item.detail_id] > 0 && (
+                    <input
+                      className="input input--sm"
+                      style={{ width: '5rem' }}
+                      type="number"
+                      min={1}
+                      max={item.returnable}
+                      value={quantities[item.detail_id]}
+                      onChange={(e) => setQuantities({ ...quantities, [item.detail_id]: Math.min(Math.max(Number.parseInt(e.target.value, 10) || 1, 1), item.returnable) })}
+                      aria-label={`Số lượng trả ${item.title}`}
+                    />
+                  )}
+                </div>
+              ))}
+              <span className="help-text">Số tiền hoàn dự kiến {formatPrice(estimate)} (đã trừ phần giảm giá của đơn, cửa hàng xác nhận lại khi nhận hàng).</span>
+            </fieldset>
             <label className="field">
               <span className="label">Lý do</span>
               <select className="select" value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })}>
@@ -101,11 +192,31 @@ function ReturnRequestCard({ order, items, request, onCreated }) {
             </label>
             <label className="field">
               <span className="label">Mô tả vấn đề</span>
-              <textarea className="textarea" required minLength={10} rows={4} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="Tình trạng đĩa, bìa, phụ kiện..." />
+              <textarea className="textarea" required minLength={10} maxLength={2000} rows={4} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="Tình trạng đĩa, bìa, phụ kiện..." />
             </label>
+            <div className="field">
+              <span className="label">Ảnh bằng chứng ({photos.length}/{MAX_RETURN_PHOTOS})</span>
+              <div className="photo-strip">
+                {photos.map((photo, index) => (
+                  <div key={photo.preview} className="photo-strip__item">
+                    <img src={photo.preview} alt={`Ảnh bằng chứng ${index + 1}`} />
+                    <button type="button" className="icon-button icon-button--sm photo-strip__remove" onClick={() => removePhoto(index)} aria-label={`Bỏ ảnh ${index + 1}`}>
+                      <X size={14} />
+                    </button>
+                  </div>
+                ))}
+                {photos.length < MAX_RETURN_PHOTOS && (
+                  <button type="button" className="photo-strip__item photo-strip__add" onClick={() => fileRef.current?.click()}>
+                    <ImagePlus size={20} /><span className="text-xs">Thêm ảnh</span>
+                  </button>
+                )}
+              </div>
+              <input ref={fileRef} type="file" accept="image/*" multiple hidden onChange={addPhotos} />
+              <span className="help-text">Chụp rõ chỗ xước, vỡ, bìa móp hoặc tem sai sản phẩm giúp cửa hàng xử lý nhanh hơn.</span>
+            </div>
             <label className="field">
-              <span className="label">Link ảnh/video bằng chứng (nếu có)</span>
-              <input className="input" value={form.evidence} onChange={(e) => setForm({ ...form, evidence: e.target.value })} />
+              <span className="label">Link video bằng chứng (nếu có)</span>
+              <input className="input" type="url" maxLength={1000} value={form.evidence} onChange={(e) => setForm({ ...form, evidence: e.target.value })} placeholder="https://..." />
             </label>
             <div className="button-group">
               <button type="submit" className="btn btn--primary" disabled={submitting}>{submitting ? 'Đang gửi...' : 'Gửi yêu cầu'}</button>
@@ -123,7 +234,7 @@ export function OrderDetail() {
   const user = useCurrentUser();
   const [orderData, setOrderData] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [returnRequest, setReturnRequest] = useState(null);
+  const [returnRequests, setReturnRequests] = useState([]);
   const [paying, setPaying] = useState(false);
   const toast = useToast();
 
@@ -133,9 +244,7 @@ export function OrderDetail() {
       setOrderData(data.success ? data.data : null);
       if (data.success) {
         const returns = await api.get('/returns/mine').catch(() => null);
-        if (returns?.success) {
-          setReturnRequest((returns.data || []).find((item) => String(item.order_id) === String(id)) || null);
-        }
+        if (returns?.success) setReturnRequests((returns.data || []).filter((item) => String(item.order_id) === String(id)));
       }
     } catch {
       setOrderData(null);
@@ -260,7 +369,7 @@ export function OrderDetail() {
               </div>
             </section>
 
-            <ReturnRequestCard order={info} items={items} request={returnRequest} onCreated={setReturnRequest} />
+            <ReturnRequestCard orderId={info.MaDH} requests={returnRequests} onCreated={loadOrder} />
           </div>
 
           <div className="stack">

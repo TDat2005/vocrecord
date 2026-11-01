@@ -1,4 +1,5 @@
 import { api } from '../utils/api';
+import { resizeToCanvas } from '../utils/image';
 
 // Tìm sản phẩm bằng ảnh bìa: ưu tiên chạy CLIP trong trình duyệt rồi chỉ gửi vector (512 số) lên server;
 // trình duyệt không chạy được (máy yếu, chặn WebAssembly, không tải được mô hình) thì gửi ảnh đã thu nhỏ để server tự tính.
@@ -63,15 +64,9 @@ function embedInBrowser(blob, onProgress) {
   });
 }
 
-// Thu nhỏ ảnh chụp từ điện thoại (thường vài MB) về cạnh dài 512px: CLIP chỉ cần 224px.
+// Ảnh tìm kiếm chỉ cần cạnh dài 512px: CLIP chỉ dùng 224px.
 export async function shrinkImage(file, maxSize = 512) {
-  const bitmap = await createImageBitmap(file);
-  const scale = Math.min(1, maxSize / Math.max(bitmap.width, bitmap.height));
-  const canvas = document.createElement('canvas');
-  canvas.width = Math.round(bitmap.width * scale);
-  canvas.height = Math.round(bitmap.height * scale);
-  canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-  bitmap.close?.();
+  const canvas = await resizeToCanvas(file, maxSize);
   return new Promise((resolve, reject) => {
     canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error('Không đọc được ảnh'))), 'image/jpeg', 0.9);
   });

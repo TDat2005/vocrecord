@@ -42,12 +42,13 @@ router.post('/product/:productId', authenticate, async (req, res, next) => {
 router.get('/manage', ...editor, async (req, res, next) => {
     try {
         const status = ['all', 'choxuly', 'daduyet', 'an'].includes(req.query.status) ? req.query.status : 'all';
-        const params = [];
-        let query = `${commentSelect} WHERE 1=1`;
-        if (status !== 'all') { query += ' AND c.TrangThai = ?'; params.push(status); }
-        query += ' ORDER BY c.NgayTao DESC LIMIT 200';
-        const [rows] = await pool.query(query, params);
-        res.json({ success: true, data: rows });
+        const page = Math.max(Number.parseInt(req.query.page, 10) || 1, 1);
+        const limit = Math.min(Math.max(Number.parseInt(req.query.limit, 10) || 50, 1), 100);
+        const where = status === 'all' ? '' : 'WHERE c.TrangThai = ?';
+        const params = status === 'all' ? [] : [status];
+        const [[{ total }]] = await pool.query(`SELECT COUNT(*) AS total FROM BinhLuanSanPham c ${where}`, params);
+        const [rows] = await pool.query(`${commentSelect} ${where} ORDER BY c.NgayTao DESC LIMIT ? OFFSET ?`, [...params, limit, (page - 1) * limit]);
+        res.json({ success: true, data: rows, total: Number(total), page, limit });
     } catch (error) { next(error); }
 });
 

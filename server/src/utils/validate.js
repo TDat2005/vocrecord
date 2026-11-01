@@ -7,4 +7,7 @@ const PHONE_MESSAGE = 'Số điện thoại không hợp lệ (10 chữ số, b�
 
 const isPhone = (value) => PHONE_REGEX.test(String(value || '').trim());
 
-module.exports = { PHONE_REGEX, PHONE_MESSAGE, isPhone };
+// Mật khẩu tối thiểu cho mọi tài khoản (đăng ký, đổi/khôi phục mật khẩu, tài khoản nhân viên).
+const MIN_PASSWORD = 6;
+
+module.exports = { PHONE_REGEX, PHONE_MESSAGE, isPhone, MIN_PASSWORD };

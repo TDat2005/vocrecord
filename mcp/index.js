@@ -13,7 +13,6 @@ const API_URL = (process.env.VOC_API_URL || 'http://localhost:8080/api').replace
 const SITE_URL = (process.env.VOC_SITE_URL || API_URL.replace(/\/api$/, '')).replace(/\/+$/, '');
 const USERNAME = process.env.VOC_USERNAME || '';
 const PASSWORD = process.env.VOC_PASSWORD || '';
-const SHIPPING_FEE = 30000; // phí GHN đồng giá, khớp server/src/routes/order.routes.js
 
 const ORDER_STATUS = {
   choxacnhan: 'Chờ xác nhận',
@@ -62,6 +61,21 @@ async function login() {
   if (!data.success || !data.token) throw new Error(`Đăng nhập Vọc Records thất bại: ${data.message || 'không rõ lý do'}`);
   if (!data.user || !data.user.customer_id) throw new Error('Tài khoản này không phải tài khoản khách hàng nên không đặt hàng được.');
   token = data.token;
+}
+
+// Phí vận chuyển đọc từ server (GET /api/config) để không lệch với số server tính khi tạo đơn.
+let shippingFeePromise = null;
+function getShippingFee() {
+  if (!shippingFeePromise) {
+    shippingFeePromise = request('/config').then((data) => {
+      if (!data.success || !Number.isFinite(Number(data.data?.shippingFee))) throw new Error('Không đọc được phí vận chuyển từ máy chủ Vọc Records.');
+      return Number(data.data.shippingFee);
+    }).catch((error) => {
+      shippingFeePromise = null; // lần sau thử lại
+      throw error;
+    });
+  }
+  return shippingFeePromise;
 }
 
 const vnd = (value) => `${Math.round(Number(value) || 0).toLocaleString('vi-VN')}đ`;
@@ -117,7 +131,8 @@ async function buildQuote(items, discountCode) {
     if (check.success) discount = Number(check.data.discountAmount) || 0;
     else discountNote = `Mã ${discountCode} không áp dụng được: ${check.message}`;
   }
-  return { lines, subtotal, discount, discountNote, shipping: SHIPPING_FEE, total: Math.max(subtotal - discount, 0) + SHIPPING_FEE };
+  const shipping = await getShippingFee();
+  return { lines, subtotal, discount, discountNote, shipping, total: Math.max(subtotal - discount, 0) + shipping };
 }
 
 const server = new McpServer(

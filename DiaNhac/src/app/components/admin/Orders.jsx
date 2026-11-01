@@ -3,8 +3,11 @@ import { Eye, Printer, RefreshCw, Search, Truck } from 'lucide-react';
 import { useToast } from '../../context/ToastContext';
 import { api, NETWORK_ERROR } from '../../utils/api';
 import { formatDateTime, formatOrderCode, formatPrice } from '../../utils/format';
-import { ORDER_STATUS_OPTIONS, getOrderStatus, getPaymentStatus, getRefundStatus } from '../../utils/status';
-import { Modal, StatusBadge } from '../ui';
+import {
+  CANCELLABLE_STATUSES, ORDER_STATUS_OPTIONS, ORDER_STEPS, getOrderStatus, getPaymentStatus, getRefundStatus,
+} from '../../utils/status';
+import { useDebounced } from '../../hooks/useDebounced';
+import { Modal, Pagination, StatusBadge } from '../ui';
 import { printInvoice } from './invoice';
 import { PageHeader } from './PageHeader';
 
@@ -107,26 +110,47 @@ function OrderDetailsModal({ order, onClose }) {
             <div className="summary-row"><span className="text-muted">Giảm giá ({info.CodeGiamGia || 'Voucher'})</span><span>−{formatPrice(info.SoTienGiam)}</span></div>
           )}
           <div className="summary-row"><span className="text-muted">Phí vận chuyển</span><span>{formatPrice(info.PhiVanChuyen)}</span></div>
-          <div className="summary-row summary-row--total"><span>Tổng cộng</span><span>{formatPrice(info.TongTien)}</span></div>
+          {Number(info.SoTienTinDung) > 0 && (
+            <div className="summary-row"><span className="text-muted">Trả bằng ví tín dụng</span><span>−{formatPrice(info.SoTienTinDung)}</span></div>
+          )}
+          <div className="summary-row summary-row--total"><span>{Number(info.SoTienTinDung) > 0 ? 'Còn phải thu' : 'Tổng cộng'}</span><span>{formatPrice(info.TongTien)}</span></div>
         </div>
       </div>
     </Modal>
   );
 }
 
+// Chỉ hiện các trạng thái server cho phép chuyển tới (đi tiếp, hoặc hủy khi chưa giao), giống canTransition ở server.
+const FLOW = ORDER_STEPS.map((step) => step.id);
+const canMoveTo = (from, to) => (to === 'dahuy'
+  ? CANCELLABLE_STATUSES.includes(from)
+  : FLOW.indexOf(to) > FLOW.indexOf(from) && FLOW.indexOf(from) !== -1);
+
 export function Orders() {
   const toast = useToast();
   const [orders, setOrders] = useState([]);
+  const [paging, setPaging] = useState({ page: 1, total: 0, limit: 50 });
   const [query, setQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [details, setDetails] = useState(null);
   const [busyId, setBusyId] = useState(null);
+  const [page, setPage] = useState(1);
+  const keyword = useDebounced(query.trim());
 
+  // Tìm kiếm, lọc và phân trang ở server (trước đây chỉ xem được 100 đơn gần nhất).
   const load = useCallback(() => {
-    api.get('/orders').then((data) => { if (data.success) setOrders(data.data || []); }).catch(() => toast.error(NETWORK_ERROR));
-  }, [toast]);
+    const params = new URLSearchParams({ page: String(page), limit: '50' });
+    if (keyword) params.set('q', keyword);
+    if (statusFilter !== 'all') params.set('status', statusFilter);
+    api.get(`/orders?${params}`).then((data) => {
+      if (!data.success) return;
+      setOrders(data.data || []);
+      setPaging({ page: data.page || 1, total: data.total ?? (data.data || []).length, limit: data.limit || 50 });
+    }).catch(() => toast.error(NETWORK_ERROR));
+  }, [toast, page, keyword, statusFilter]);
 
   useEffect(() => { load(); }, [load]);
+  useEffect(() => { setPage(1); }, [keyword, statusFilter]);
 
   // Chạy một thao tác trên đơn, hiện thông báo rồi tải lại danh sách.
   const runAction = async (orderId, request, successMessage) => {
@@ -173,22 +197,11 @@ export function Orders() {
     }
   };
 
-  const keyword = query.trim().toLowerCase();
-  const visible = orders.filter((order) => {
-    const matchesStatus = statusFilter === 'all' || order.TrangThai === statusFilter
-      || (statusFilter === 'refund' && order.TrangThaiHoanTien === 'choxuly');
-    const matchesKeyword = !keyword
-      || formatOrderCode(order.MaDH).toLowerCase().includes(keyword)
-      || String(order.MaDH).includes(keyword)
-      || String(order.HoTen || order.NguoiNhan || '').toLowerCase().includes(keyword);
-    return matchesStatus && matchesKeyword;
-  });
-
   return (
     <>
       <PageHeader
         title="Đơn hàng"
-        subtitle={`${orders.length} đơn gần nhất`}
+        subtitle={`${paging.total} đơn hàng`}
         actions={<button type="button" className="btn btn--secondary" onClick={load}><RefreshCw size={16} /> Làm mới</button>}
       />
 
@@ -196,7 +209,7 @@ export function Orders() {
         <div className="admin-toolbar">
           <label className="admin-search">
             <Search size={16} />
-            <input className="input input--sm" type="search" placeholder="Tìm mã đơn hoặc tên khách" value={query} onChange={(e) => setQuery(e.target.value)} />
+            <input className="input input--sm" type="search" placeholder="Tìm mã đơn, tên khách hoặc số điện thoại" value={query} onChange={(e) => setQuery(e.target.value)} />
           </label>
           <select className="select select--sm" style={{ width: 'auto' }} value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} aria-label="Lọc trạng thái">
             <option value="all">Tất cả trạng thái</option>
@@ -210,8 +223,8 @@ export function Orders() {
               <tr><th>Đơn hàng</th><th>Ngày đặt</th><th>Khách hàng</th><th className="is-numeric">Tổng tiền</th><th>Vận chuyển</th><th>Trạng thái</th><th /></tr>
             </thead>
             <tbody>
-              {visible.length === 0 && <tr><td colSpan={7} className="table__empty">Không có đơn hàng phù hợp.</td></tr>}
-              {visible.map((order) => {
+              {orders.length === 0 && <tr><td colSpan={7} className="table__empty">Không có đơn hàng phù hợp.</td></tr>}
+              {orders.map((order) => {
                 const isFinal = ['hoanthanh', 'dahuy'].includes(order.TrangThai);
                 const busy = busyId === order.MaDH;
                 return (
@@ -250,7 +263,9 @@ export function Orders() {
                         disabled={isFinal || busy}
                         aria-label={`Trạng thái đơn ${order.MaDH}`}
                       >
-                        {ORDER_STATUS_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                        {ORDER_STATUS_OPTIONS.filter((option) => option.value === order.TrangThai || canMoveTo(order.TrangThai, option.value)).map((option) => (
+                          <option key={option.value} value={option.value}>{option.label}</option>
+                        ))}
                       </select>
                     </td>
                     <td>
@@ -272,6 +287,7 @@ export function Orders() {
             </tbody>
           </table>
         </div>
+        <Pagination page={paging.page} total={paging.total} limit={paging.limit} onChange={setPage} />
         <p className="help-text" style={{ padding: '0.75rem 1rem' }}>
           Tạo vận đơn GHN khi đơn ở trạng thái “Đã xác nhận” hoặc “Đang chuẩn bị”. Trạng thái chỉ được chuyển tiếp, không quay lui.
         </p>

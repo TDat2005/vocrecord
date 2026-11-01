@@ -4,6 +4,7 @@ import { useCart } from '../context/CartContext';
 import { useWishlist } from '../context/WishlistContext';
 import { useToast } from '../context/ToastContext';
 import { NETWORK_ERROR } from '../utils/api';
+import { addToCartMessage } from '../utils/catalog';
 import { formatPrice } from '../utils/format';
 import { SafeImage } from './SafeImage';
 import { Badge } from './ui';
@@ -31,8 +32,8 @@ export function ProductCard({ product, quickAdd = false, badge }) {
   };
 
   const handleQuickAdd = () => {
-    addToCart(product);
-    toast.success(`Đã thêm "${product.title}" vào giỏ hàng`);
+    const { ok, message } = addToCartMessage(product, 1, addToCart(product));
+    if (ok) toast.success(message); else toast.error(message);
   };
 
   return (

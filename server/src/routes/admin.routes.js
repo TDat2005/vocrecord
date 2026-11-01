@@ -1,6 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const pool = require('../config/database');
+const { withTransaction } = require('../utils/db');
+const { fail } = require('../utils/http');
 const { authenticate, requireRole, forgetAccountStatus } = require('../middleware/auth.middleware');
 
 router.use(authenticate, requireRole('admin', 'nhanvien'));
@@ -49,23 +51,36 @@ router.get('/dashboard', async (req, res, next) => {
     }
 });
 
-// GET /customers
+const paging = (query, defaultLimit = 50) => {
+    const page = Math.max(Number.parseInt(query.page, 10) || 1, 1);
+    const limit = Math.min(Math.max(Number.parseInt(query.limit, 10) || defaultLimit, 1), 100);
+    return { page, limit, offset: (page - 1) * limit };
+};
+
+// GET /customers?q=&page=&limit= — tìm theo tên, email, số điện thoại.
 router.get('/customers', async (req, res, next) => {
     try {
+        const { page, limit, offset } = paging(req.query);
+        const keyword = String(req.query.q || '').trim();
+        const where = ["(tk.MaTK IS NULL OR tk.VaiTro = 'khachhang')"];
+        const params = [];
+        if (keyword) {
+            where.push('(kh.HoTen LIKE ? OR kh.Email LIKE ? OR kh.SoDienThoai LIKE ?)');
+            params.push(`%${keyword}%`, `%${keyword}%`, `%${keyword}%`);
+        }
+        const from = `FROM KhachHang kh LEFT JOIN TaiKhoan tk ON tk.MaTK = kh.MaTK WHERE ${where.join(' AND ')}`;
+        const [[{ total }]] = await pool.query(`SELECT COUNT(*) AS total ${from}`, params);
         const [customers] = await pool.query(`
             SELECT kh.MaKH as id, kh.HoTen as name, kh.Email as email, kh.SoDienThoai as phone,
-                   COUNT(dh.MaDH) as totalOrders, COALESCE(SUM(${REVENUE}), 0) as totalSpent,
-                   MAX(tk.MaTK) as account_id, COALESCE(MAX(tk.TrangThai), 1) as active,
-                   (SELECT COUNT(*) FROM DonHang d2 WHERE d2.MaKH = kh.MaKH AND d2.TrangThai = 'dahuy') as cancelledOrders
-            FROM KhachHang kh
-            LEFT JOIN TaiKhoan tk ON tk.MaTK = kh.MaTK
-            LEFT JOIN DonHang dh ON kh.MaKH = dh.MaKH AND dh.TrangThai = 'hoanthanh'
-            WHERE tk.MaTK IS NULL OR tk.VaiTro = 'khachhang'
-            GROUP BY kh.MaKH
+                   tk.MaTK as account_id, COALESCE(tk.TrangThai, 1) as active,
+                   (SELECT COUNT(*) FROM DonHang d WHERE d.MaKH = kh.MaKH AND d.TrangThai = 'hoanthanh') as totalOrders,
+                   (SELECT COALESCE(SUM(d.TongTien + COALESCE(d.SoTienTinDung, 0)), 0) FROM DonHang d WHERE d.MaKH = kh.MaKH AND d.TrangThai = 'hoanthanh') as totalSpent,
+                   (SELECT COUNT(*) FROM DonHang d WHERE d.MaKH = kh.MaKH AND d.TrangThai = 'dahuy') as cancelledOrders
+            ${from}
             ORDER BY kh.MaKH DESC
-            LIMIT 200
-        `);
-        res.json({ success: true, data: customers });
+            LIMIT ? OFFSET ?
+        `, [...params, limit, offset]);
+        res.json({ success: true, data: customers, total: Number(total), page, limit });
     } catch (error) {
         next(error);
     }
@@ -77,8 +92,8 @@ router.put('/customers/:id/status', requireRole('admin'), async (req, res, next)
     try {
         const active = req.body.active === true || req.body.active === 1 || req.body.active === '1';
         const [[customer]] = await pool.query('SELECT kh.MaTK, tk.VaiTro FROM KhachHang kh JOIN TaiKhoan tk ON tk.MaTK = kh.MaTK WHERE kh.MaKH = ?', [req.params.id]);
-        if (!customer) return res.status(404).json({ success: false, message: 'Không tìm thấy tài khoản khách hàng' });
-        if (customer.VaiTro !== 'khachhang') return res.status(400).json({ success: false, message: 'Đây là tài khoản nhân viên, khóa ở mục Nhân sự & phân quyền' });
+        if (!customer) throw fail(404, 'Không tìm thấy tài khoản khách hàng');
+        if (customer.VaiTro !== 'khachhang') throw fail(400, 'Đây là tài khoản nhân viên, khóa ở mục Nhân sự & phân quyền');
         await pool.query('UPDATE TaiKhoan SET TrangThai = ? WHERE MaTK = ?', [active ? 1 : 0, customer.MaTK]);
         forgetAccountStatus(customer.MaTK);
         await pool.query('INSERT INTO NhatKyHoatDong (MaTK, HanhDong, NoiDung) VALUES (?, ?, ?)',
@@ -89,17 +104,28 @@ router.put('/customers/:id/status', requireRole('admin'), async (req, res, next)
     }
 });
 
-// GET /inventory
+// GET /inventory?q=&page=&limit= — kho hàng có tìm kiếm theo tên/mã và phân trang.
+// GET /inventory?all=1 — danh sách rút gọn mọi sản phẩm đang bán (chọn sản phẩm khi lập phiếu nhập kho).
 router.get('/inventory', async (req, res, next) => {
     try {
+        if (req.query.all === '1') {
+            const [rows] = await pool.query("SELECT MaSP as id, TenSP as name, SoLuongTon as stock FROM SanPham WHERE TinhTrang <> 'ngungkinhdoanh' ORDER BY TenSP");
+            return res.json({ success: true, data: rows });
+        }
+        const { page, limit, offset } = paging(req.query);
+        const keyword = String(req.query.q || '').trim().replace(/^SP-/i, '');
+        const where = keyword ? 'WHERE sp.TenSP LIKE ? OR sp.MaSP = ?' : '';
+        const params = keyword ? [`%${keyword}%`, Number(keyword) || 0] : [];
+        const [[{ total }]] = await pool.query(`SELECT COUNT(*) AS total FROM SanPham sp ${where}`, params);
         const [inventory] = await pool.query(`
             SELECT sp.MaSP as id, sp.TenSP as name, sp.GiaBan as price, sp.SoLuongTon as stock, dm.TenDM as genre, sp.TinhTrang as status, sp.HinhAnh as image
             FROM SanPham sp
             LEFT JOIN DanhMuc dm ON sp.MaDM = dm.MaDM
+            ${where}
             ORDER BY sp.MaSP DESC
-            LIMIT 200
-        `);
-        res.json({ success: true, data: inventory });
+            LIMIT ? OFFSET ?
+        `, [...params, limit, offset]);
+        res.json({ success: true, data: inventory, total: Number(total), page, limit });
     } catch (error) {
         next(error);
     }
@@ -131,17 +157,15 @@ router.get('/revenue-report', async (req, res, next) => {
 
 // POST /import-stock
 router.post('/import-stock', async (req, res, next) => {
-    let connection;
     try {
-        const { items = [], note = '' } = req.body;
-
-        if (!Array.isArray(items) || items.length === 0) {
-            return res.json({ success: false, message: 'Dữ liệu không hợp lệ' });
-        }
+        const { items = [] } = req.body;
+        const note = String(req.body.note || '').trim();
+        if (!Array.isArray(items) || items.length === 0) throw fail(400, 'Dữ liệu không hợp lệ');
+        if (note.length > 255) throw fail(400, 'Ghi chú phiếu nhập tối đa 255 ký tự');
 
         const [staffRows] = await pool.query('SELECT MaNV FROM NhanVien WHERE MaTK = ?', [req.user.id]);
         const employeeId = staffRows[0]?.MaNV;
-        if (!employeeId) return res.status(403).json({ success: false, message: 'Tài khoản chưa có hồ sơ nhân viên' });
+        if (!employeeId) throw fail(403, 'Tài khoản chưa có hồ sơ nhân viên');
 
         // Kiểm tra dữ liệu từng dòng nhập (khớp luồng phụ UC12 trong báo cáo):
         // số lượng phải là số nguyên > 0, giá nhập >= 0, sản phẩm phải tồn tại.
@@ -150,61 +174,39 @@ router.post('/import-stock', async (req, res, next) => {
             const id = Number(item.id);
             const qty = Number(item.qty);
             const price = Number(item.price);
-            if (!Number.isInteger(id) || id <= 0) {
-                return res.status(400).json({ success: false, message: 'Mã sản phẩm không hợp lệ' });
-            }
-            if (!Number.isInteger(qty) || qty <= 0) {
-                return res.status(400).json({ success: false, message: `Số lượng nhập của sản phẩm #${id} phải là số nguyên lớn hơn 0` });
-            }
-            if (!Number.isFinite(price) || price < 0) {
-                return res.status(400).json({ success: false, message: `Giá nhập của sản phẩm #${id} không hợp lệ` });
-            }
+            if (!Number.isInteger(id) || id <= 0) throw fail(400, 'Mã sản phẩm không hợp lệ');
+            if (!Number.isInteger(qty) || qty <= 0) throw fail(400, `Số lượng nhập của sản phẩm #${id} phải là số nguyên lớn hơn 0`);
+            if (!Number.isFinite(price) || price < 0) throw fail(400, `Giá nhập của sản phẩm #${id} không hợp lệ`);
             normalized.push({ id, qty, price });
         }
         const ids = [...new Set(normalized.map((i) => i.id))];
         const [existing] = await pool.query('SELECT MaSP FROM SanPham WHERE MaSP IN (?)', [ids]);
         if (existing.length !== ids.length) {
             const found = new Set(existing.map((r) => r.MaSP));
-            const missing = ids.filter((id) => !found.has(id));
-            return res.status(400).json({ success: false, message: `Sản phẩm không tồn tại: #${missing.join(', #')}` });
+            throw fail(400, `Sản phẩm không tồn tại: #${ids.filter((id) => !found.has(id)).join(', #')}`);
         }
 
-        connection = await pool.getConnection();
-        await connection.beginTransaction();
-
-        let total = 0;
-        for (const item of normalized) {
-            total += (item.qty * item.price);
-        }
-
-        const [result] = await connection.query("INSERT INTO PhieuNhap (MaNV, TongTien, GhiChu) VALUES (?, ?, ?)", [employeeId, total, note]);
-        const maPN = result.insertId;
-
-        for (const item of normalized) {
-            await connection.query("INSERT INTO ChiTietPhieuNhap (MaPN, MaSP, SoLuongNhap, GiaNhap) VALUES (?, ?, ?, ?)", [maPN, item.id, item.qty, item.price]);
-            // Hàng về thì mở bán lại sản phẩm đang "Hết hàng" (trước đây vẫn kẹt trạng thái hết hàng, không đặt được).
+        const total = normalized.reduce((sum, item) => sum + item.qty * item.price, 0);
+        const maPN = await withTransaction(async (connection) => {
+            const [result] = await connection.query("INSERT INTO PhieuNhap (MaNV, TongTien, GhiChu) VALUES (?, ?, ?)", [employeeId, total, note || null]);
+            for (const item of normalized) {
+                await connection.query("INSERT INTO ChiTietPhieuNhap (MaPN, MaSP, SoLuongNhap, GiaNhap) VALUES (?, ?, ?, ?)", [result.insertId, item.id, item.qty, item.price]);
+                // Hàng về thì mở bán lại sản phẩm đang "Hết hàng" (trước đây vẫn kẹt trạng thái hết hàng, không đặt được).
+                await connection.query(
+                    "UPDATE SanPham SET SoLuongTon = SoLuongTon + ?, TinhTrang = IF(TinhTrang IN ('hethang', 'saphethang'), 'conhang', TinhTrang) WHERE MaSP = ?",
+                    [item.qty, item.id]
+                );
+            }
             await connection.query(
-                "UPDATE SanPham SET SoLuongTon = SoLuongTon + ?, TinhTrang = IF(TinhTrang IN ('hethang', 'saphethang'), 'conhang', TinhTrang) WHERE MaSP = ?",
-                [item.qty, item.id]
+                "INSERT INTO NhatKyHoatDong (MaTK, HanhDong, NoiDung) VALUES (?, ?, ?)",
+                [req.user.id, 'Nhập kho', `Phiếu #${result.insertId}, ${normalized.length} dòng, tổng tiền ${total}`]
             );
-        }
-
-        const logMsg = `Nhập kho phiếu #${maPN}, tổng tiền ${total}`;
-        await connection.query(
-            "INSERT INTO NhatKyHoatDong (MaTK, HanhDong) VALUES ((SELECT MaTK FROM NhanVien WHERE MaNV = ? LIMIT 1), ?)",
-            [employeeId, logMsg]
-        );
-
-        await connection.commit();
-        connection.release();
+            return result.insertId;
+        });
 
         res.json({ success: true, message: 'Nhập kho thành công!', phieu_nhap_id: maPN });
     } catch (error) {
-        if (connection) {
-            await connection.rollback();
-            connection.release();
-        }
-        res.json({ success: false, message: 'Lỗi nhập kho: ' + error.message });
+        next(error);
     }
 });
 

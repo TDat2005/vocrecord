@@ -40,11 +40,11 @@ class OtpModel {
     /**
      * Đánh dấu OTP đã sử dụng
      */
-    static async markUsed(email, code, connection = pool) {
+    static async markUsed(email, code, type, connection = pool) {
         const db = connection || pool;
         const [result] = await db.execute(
-            "UPDATE OtpCodes SET DaSuDung = TRUE WHERE Email = ? AND MaCode = ?",
-            [email, code]
+            "UPDATE OtpCodes SET DaSuDung = TRUE WHERE Email = ? AND MaCode = ? AND LoaiOTP = ? AND DaSuDung = FALSE",
+            [email, code, type]
         );
         return result.affectedRows > 0;
     }
@@ -53,7 +53,8 @@ class OtpModel {
      * Dọn dẹp OTP hết hạn
      */
     static async cleanExpired() {
-        const [result] = await pool.execute("DELETE FROM OtpCodes WHERE HetHan < NOW()");
+        // Giữ lại một ngày để còn tra cứu khi khách báo không nhận được mã.
+        const [result] = await pool.execute("DELETE FROM OtpCodes WHERE HetHan < NOW() - INTERVAL 1 DAY");
         return result.affectedRows;
     }
 }

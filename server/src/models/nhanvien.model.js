@@ -45,15 +45,6 @@ class NhanVienModel {
         return result.affectedRows > 0;
     }
     
-    static async updatePassword(maTK, hashedPassword, connection = pool) {
-        const db = connection || pool;
-        const [result] = await db.execute(
-            "UPDATE TaiKhoan SET MatKhau = ? WHERE MaTK = ?",
-            [hashedPassword, maTK]
-        );
-        return result.affectedRows > 0;
-    }
-
     static async toggleStatus(maTK, status, connection = pool) {
         const db = connection || pool;
         const [result] = await db.execute(

@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { Minus, Plus, X } from 'lucide-react';
+import { MAX_ORDER_QUANTITY } from '../utils/catalog';
 
 // Các thành phần giao diện nhỏ dùng lại ở nhiều trang.
 
@@ -50,7 +51,8 @@ export function EmptyState({ icon: Icon, title, children, action }) {
   );
 }
 
-export function QuantitySelector({ value, max, onChange, size }) {
+export function QuantitySelector({ value, max: stock, onChange, size }) {
+  const max = Math.min(stock, MAX_ORDER_QUANTITY);
   const handleInput = (event) => {
     const next = Number.parseInt(event.target.value, 10);
     if (Number.isInteger(next) && next >= 1) onChange(Math.min(next, max));
@@ -64,6 +66,32 @@ export function QuantitySelector({ value, max, onChange, size }) {
       <input type="number" value={value} min={1} max={max} onChange={handleInput} aria-label="Số lượng" />
       <button type="button" onClick={() => onChange(value + 1)} disabled={value >= max} aria-label="Tăng số lượng">
         <Plus size={16} />
+      </button>
+    </div>
+  );
+}
+
+// Phân trang cho bảng ở trang quản trị: page bắt đầu từ 1, total là tổng số dòng server trả về.
+export function Pagination({ page, total, limit, onChange }) {
+  const pages = Math.max(1, Math.ceil(total / limit));
+  if (pages <= 1) return null;
+  return (
+    <nav className="pagination" aria-label="Phân trang">
+      <button type="button" className="btn btn--secondary btn--sm" disabled={page <= 1} onClick={() => onChange(page - 1)}>Trước</button>
+      <span className="text-sm text-muted">Trang {page}/{pages} · {total} mục</span>
+      <button type="button" className="btn btn--secondary btn--sm" disabled={page >= pages} onClick={() => onChange(page + 1)}>Sau</button>
+    </nav>
+  );
+}
+
+// Nút "Xem thêm" cho danh sách sản phẩm phía khách.
+export function LoadMore({ shown, total, loading, onClick }) {
+  if (shown >= total) return null;
+  return (
+    <div className="load-more">
+      <p className="text-sm text-muted">Đang hiển thị {shown}/{total} sản phẩm</p>
+      <button type="button" className="btn btn--secondary" onClick={onClick} disabled={loading}>
+        {loading ? 'Đang tải...' : 'Xem thêm'}
       </button>
     </div>
   );

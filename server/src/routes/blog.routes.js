@@ -149,6 +149,11 @@ const listArticles = async (req, { management = false } = {}) => {
     return rows;
 };
 
+// Chuyên mục và độ khó: giao diện (trang Blog, trang quản trị) đọc từ đây, không tự viết lại danh sách.
+router.get('/meta', (req, res) => {
+    res.json({ success: true, data: { categories: CATEGORIES, difficulties: DIFFICULTIES } });
+});
+
 // Public listing: only published content is ever returned.
 router.get('/', async (req, res, next) => {
     try {

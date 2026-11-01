@@ -1,18 +1,13 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { ProductCard } from './ProductCard';
-import { EmptyState } from './ui';
-import { SORT_OPTIONS, sortProducts, useProducts } from '../hooks/useProducts';
+import { EmptyState, LoadMore } from './ui';
+import { SORT_OPTIONS, useProducts } from '../hooks/useProducts';
 import '../../styles/pages/shop.css';
 
 // Trang danh mục (Mâm đĩa, Cassette, Phụ kiện): chỉ khác tên danh mục và lời giới thiệu.
 export function CategoryPage({ category, title, description, emptyText }) {
-  const { products, loading, error } = useProducts();
   const [sortBy, setSortBy] = useState('name');
-
-  const items = useMemo(
-    () => sortProducts(products.filter((product) => product.genre === category), sortBy),
-    [products, category, sortBy],
-  );
+  const { products, total, loading, loadingMore, error, loadMore } = useProducts({ category, sort: sortBy });
 
   return (
     <div className="page">
@@ -23,7 +18,7 @@ export function CategoryPage({ category, title, description, emptyText }) {
         </div>
 
         <div className="collection__toolbar">
-          <span className="text-muted text-sm">{items.length} sản phẩm</span>
+          <span className="text-muted text-sm">{total} sản phẩm</span>
           <label className="collection__sort">
             <span className="text-muted text-sm">Sắp xếp</span>
             <select value={sortBy} onChange={(event) => setSortBy(event.target.value)} className="select select--sm">
@@ -36,12 +31,15 @@ export function CategoryPage({ category, title, description, emptyText }) {
           <p className="loading-text">Đang tải sản phẩm...</p>
         ) : error ? (
           <p className="loading-text">{error}</p>
-        ) : items.length === 0 ? (
+        ) : products.length === 0 ? (
           <EmptyState title={emptyText} />
         ) : (
-          <div className="product-grid product-grid--4">
-            {items.map((product) => <ProductCard key={product.id} product={product} quickAdd />)}
-          </div>
+          <>
+            <div className="product-grid product-grid--4">
+              {products.map((product) => <ProductCard key={product.id} product={product} quickAdd />)}
+            </div>
+            <LoadMore shown={products.length} total={total} loading={loadingMore} onClick={loadMore} />
+          </>
         )}
       </div>
     </div>

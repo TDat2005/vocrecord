@@ -5,12 +5,13 @@ import { useCart } from '../context/CartContext';
 import { DiscountForm } from '../components/DiscountForm';
 import { SafeImage } from '../components/SafeImage';
 import { EmptyState, QuantitySelector } from '../components/ui';
-import { SHIPPING_FEE } from '../utils/catalog';
+import { useShopConfig } from '../hooks/useCachedGet';
 import { formatPrice } from '../utils/format';
 import '../../styles/pages/cart.css';
 
 export function Cart() {
   const { items, subtotal, removeFromCart, updateQuantity, clearCart, refreshCart, appliedDiscount } = useCart();
+  const shippingFee = useShopConfig()?.shippingFee;
 
   useEffect(() => {
     refreshCart();
@@ -30,7 +31,7 @@ export function Cart() {
     );
   }
 
-  const total = Math.max(0, subtotal - (appliedDiscount?.amount || 0) + SHIPPING_FEE);
+  const total = Math.max(0, subtotal - (appliedDiscount?.amount || 0) + (shippingFee ?? 0));
 
   return (
     <div className="page">
@@ -79,7 +80,7 @@ export function Cart() {
           <aside className="card cart__summary">
             <h2 className="card__title">Tóm tắt đơn hàng</h2>
             <div className="summary-row"><span className="text-muted">Tạm tính</span><span>{formatPrice(subtotal)}</span></div>
-            <div className="summary-row"><span className="text-muted">Phí vận chuyển</span><span>{formatPrice(SHIPPING_FEE)}</span></div>
+            <div className="summary-row"><span className="text-muted">Phí vận chuyển</span><span>{shippingFee === undefined ? '—' : formatPrice(shippingFee)}</span></div>
             {appliedDiscount && (
               <div className="summary-row"><span className="text-muted">Giảm giá</span><span>−{formatPrice(appliedDiscount.amount)}</span></div>
             )}

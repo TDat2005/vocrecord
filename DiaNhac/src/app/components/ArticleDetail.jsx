@@ -47,7 +47,7 @@ export function ArticleDetail({ type, backTo, backLabel }) {
 
         <header className="article__header">
           <div className="inline">
-            <span className="article-card__category">{getArticleCategory(article, type)}</span>
+            <span className="article-card__category">{getArticleCategory(article)}</span>
             {isGuide && <Badge tone={DIFFICULTY_TONES[difficulty]}>Độ khó: {difficulty}</Badge>}
           </div>
           <h1 className="article__title">{article.title}</h1>

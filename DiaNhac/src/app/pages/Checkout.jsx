@@ -10,9 +10,12 @@ import { Badge, EmptyState } from '../components/ui';
 import { PAYOS_TIMEOUT_SECONDS, PayosPaymentModal } from '../components/PayosPaymentModal';
 import { api, NETWORK_ERROR } from '../utils/api';
 import { useCurrentUser } from '../utils/auth';
-import { SHIPPING_FEE } from '../utils/catalog';
+import { useShopConfig } from '../hooks/useCachedGet';
 import { formatPrice } from '../utils/format';
 import '../../styles/pages/cart.css';
+
+// GHN cần tỉnh/thành và phường/xã để giao hàng.
+const hasRegion = (address) => Boolean(address.GHNTinh && address.GHNPhuong);
 
 export function Checkout() {
   const navigate = useNavigate();
@@ -27,6 +30,8 @@ export function Checkout() {
   const [submitting, setSubmitting] = useState(false);
   const [payment, setPayment] = useState(null);
   const [credit, setCredit] = useState({ balance: 0, use: false });
+  const config = useShopConfig();
+  const shippingFee = config?.shippingFee;
   const customerId = user?.customer_id;
 
   useEffect(() => {
@@ -41,28 +46,20 @@ export function Checkout() {
     }).catch(() => {});
   }, [customerId]);
 
-  // Sổ địa chỉ; nếu trống thì lấy địa chỉ trong hồ sơ khách hàng.
+  // Sổ địa chỉ giao hàng. Không lấy địa chỉ trong hồ sơ như trước: địa chỉ đó thiếu tỉnh/phường
+  // nên đơn không tạo được vận đơn GHN.
   useEffect(() => {
-    if (!customerId) return;
+    if (!customerId) return undefined;
     let cancelled = false;
-    (async () => {
-      try {
-        const data = await api.get('/account/addresses');
-        if (cancelled) return;
-        if (data.success && data.data?.length) {
-          setAddresses(data.data);
-          setSelectedId((data.data.find((addr) => addr.MacDinh === 1) || data.data[0]).MaDC);
-          return;
-        }
-        const profile = await api.get('/account/profile');
-        if (!cancelled && profile.success && profile.data?.address) {
-          setAddresses([{ MaDC: 'profile', NguoiNhan: profile.data.fullName || '', SoDienThoai: profile.data.phone || '', DiaChi: profile.data.address }]);
-          setSelectedId('profile');
-        }
-      } catch {
-        // Khách vẫn có thể thêm địa chỉ mới.
-      }
-    })();
+    api.get('/account/addresses').then((data) => {
+      if (cancelled || !data.success || !data.data?.length) return;
+      setAddresses(data.data);
+      const usable = data.data.filter(hasRegion);
+      const preferred = usable.find((addr) => addr.MacDinh === 1) || usable[0];
+      if (preferred) setSelectedId(preferred.MaDC);
+    }).catch(() => {
+      // Khách vẫn có thể thêm địa chỉ mới.
+    });
     return () => { cancelled = true; };
   }, [customerId]);
 
@@ -89,7 +86,7 @@ export function Checkout() {
   }
 
   const discountAmount = appliedDiscount?.amount || 0;
-  const totalBeforeCredit = Math.max(0, subtotal - discountAmount + SHIPPING_FEE);
+  const totalBeforeCredit = Math.max(0, subtotal - discountAmount + (shippingFee ?? 0));
   // Server tự tính lại phần trừ ví theo số dư thật lúc đặt hàng; ở đây chỉ để hiển thị.
   const creditUsed = credit.use ? Math.min(credit.balance, totalBeforeCredit) : 0;
   const total = totalBeforeCredit - creditUsed;
@@ -121,6 +118,10 @@ export function Checkout() {
     }
     if (!selected.NguoiNhan || !selected.SoDienThoai || !selected.DiaChi) {
       toast.error('Thông tin địa chỉ giao hàng chưa đầy đủ.');
+      return;
+    }
+    if (!hasRegion(selected)) {
+      toast.error('Địa chỉ này thiếu Tỉnh/thành hoặc Phường/xã. Vui lòng thêm địa chỉ mới.');
       return;
     }
 
@@ -206,12 +207,14 @@ export function Checkout() {
                 <div className="choice-list">
                   {addresses.map((addr) => (
                     <label key={addr.MaDC} className={`choice ${selectedId === addr.MaDC ? 'choice--selected' : ''}`}>
-                      <input type="radio" name="address" checked={selectedId === addr.MaDC} onChange={() => setSelectedId(addr.MaDC)} />
+                      <input type="radio" name="address" checked={selectedId === addr.MaDC} onChange={() => setSelectedId(addr.MaDC)} disabled={!hasRegion(addr)} />
                       <div className="choice__body">
                         <p className="choice__title">{addr.NguoiNhan} · {addr.SoDienThoai}</p>
                         <p className="choice__desc">{addr.DiaChi}</p>
-                        {(addr.GHNPhuong || addr.GHNTinh) && (
-                          <p className="choice__desc">{[addr.GHNPhuong, addr.GHNTinh].filter(Boolean).join(', ')}</p>
+                        {hasRegion(addr) ? (
+                          <p className="choice__desc">{[addr.GHNPhuong, addr.GHNTinh].join(', ')}</p>
+                        ) : (
+                          <p className="choice__desc text-critical">Thiếu tỉnh/phường, không dùng để giao hàng được. Hãy thêm địa chỉ mới.</p>
                         )}
                       </div>
                       {addr.MacDinh === 1 && <Badge>Mặc định</Badge>}
@@ -222,7 +225,7 @@ export function Checkout() {
               )}
               <label className="field checkout__note">
                 <span className="label">Ghi chú đơn hàng (không bắt buộc)</span>
-                <textarea rows={2} value={note} onChange={(event) => setNote(event.target.value)} className="textarea" placeholder="Lời nhắn cho cửa hàng" />
+                <textarea rows={2} value={note} onChange={(event) => setNote(event.target.value)} maxLength={config?.maxOrderNote} className="textarea" placeholder="Lời nhắn cho cửa hàng" />
               </label>
             </section>
 
@@ -266,7 +269,7 @@ export function Checkout() {
               )}
             </section>
 
-            <button type="submit" className="btn btn--primary btn--lg btn--full" disabled={submitting}>
+            <button type="submit" className="btn btn--primary btn--lg btn--full" disabled={submitting || shippingFee === undefined}>
               {submitting ? 'Đang đặt hàng...' : paymentMethod === 'online' && !paidByCredit ? 'Thanh toán bằng VietQR' : 'Đặt hàng'}
             </button>
             <Link to="/cart" className="link text-sm checkout__back">Quay lại giỏ hàng</Link>
@@ -292,7 +295,7 @@ export function Checkout() {
             <DiscountForm />
             <div className="stack stack--sm">
               <div className="summary-row"><span className="text-muted">Tạm tính</span><span>{formatPrice(subtotal)}</span></div>
-              <div className="summary-row"><span className="text-muted">Phí vận chuyển</span><span>{formatPrice(SHIPPING_FEE)}</span></div>
+              <div className="summary-row"><span className="text-muted">Phí vận chuyển</span><span>{shippingFee === undefined ? '—' : formatPrice(shippingFee)}</span></div>
               {appliedDiscount && (
                 <div className="summary-row"><span className="text-muted">Giảm giá ({appliedDiscount.code})</span><span>−{formatPrice(discountAmount)}</span></div>
               )}

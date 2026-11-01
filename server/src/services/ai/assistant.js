@@ -5,6 +5,9 @@ const DonHangModel = require('../../models/donhang.model');
 const DiscountModel = require('../../models/discount.model');
 const { searchProducts } = require('./catalog-search');
 const { getClient, isConfigured } = require('./gemini');
+const { ORDER_STATUS_LABELS, SHIPPING_FEE } = require('../../constants/order');
+
+const vnd = (value) => `${Number(value).toLocaleString('vi-VN')}đ`;
 
 // Trợ lý mua sắm: Gemini gọi các công cụ bên dưới (function calling) để tìm sản phẩm thật trong CSDL,
 // rồi trả lời dạng stream. Mỗi sự kiện được chuyển cho trình duyệt qua hàm send() (SSE).
@@ -16,9 +19,9 @@ const FALLBACK_MODEL = process.env.AI_CHAT_FALLBACK_MODEL ?? 'gemini-3.5-flash-l
 const THINKING = ThinkingLevel[String(process.env.AI_CHAT_THINKING || 'low').toUpperCase()] || ThinkingLevel.LOW;
 const MAX_OUTPUT_TOKENS = 8192; // câu trả lời của trợ lý luôn ngắn; giới hạn để chặn lượt chạy bất thường
 const MAX_STEPS = 6; // số lần gọi mô hình tối đa trong một lượt (mỗi lần có thể gọi nhiều công cụ)
-const FIRST_CHUNK_TIMEOUT_MS = 25000; // quá lâu chưa có dữ liệu (gói miễn phí đang nghẽn): bỏ, chuyển mô hình dự phòng
+const IDLE_TIMEOUT_MS = 25000; // quá lâu không có dữ liệu mới (gói miễn phí đang nghẽn, stream treo): bỏ lượt này
 
-const SYSTEM_PROMPT = `Bạn là trợ lý mua sắm của Vọc Records, cửa hàng đĩa than (vinyl), băng cassette, mâm đĩa và phụ kiện analog tại 54 Triều Khúc, Thanh Xuân, Hà Nội (hotline 0766 255 478). Giao hàng toàn quốc qua GHN, phí vận chuyển đồng giá 30.000đ; thanh toán khi nhận hàng (COD) hoặc chuyển khoản VietQR qua PayOS.
+const SYSTEM_PROMPT = `Bạn là trợ lý mua sắm của Vọc Records, cửa hàng đĩa than (vinyl), băng cassette, mâm đĩa và phụ kiện analog tại 54 Triều Khúc, Thanh Xuân, Hà Nội (hotline 0766 255 478). Giao hàng toàn quốc qua GHN, phí vận chuyển đồng giá ${vnd(SHIPPING_FEE)}; thanh toán khi nhận hàng (COD) hoặc chuyển khoản VietQR qua PayOS.
 
 Cách làm việc:
 - Khi khách muốn tìm, được gợi ý hoặc so sánh sản phẩm, luôn gọi search_products, kể cả khi khách chỉ tả tâm trạng hay dịp nghe. Có thể gọi nhiều lần với cách diễn đạt khác nếu kết quả chưa hợp. Chỉ giới thiệu sản phẩm có trong kết quả công cụ; không tự nghĩ ra tên, giá hay tồn kho.
@@ -38,14 +41,6 @@ const TOOL_LABELS = {
     get_my_orders: 'Đang xem đơn hàng của bạn',
 };
 
-const ORDER_STATUS = {
-    choxacnhan: 'Chờ xác nhận',
-    daxacnhan: 'Đã xác nhận',
-    dangchuanbihang: 'Đang chuẩn bị hàng',
-    danggiaohang: 'Đang giao',
-    hoanthanh: 'Hoàn thành',
-    dahuy: 'Đã hủy',
-};
 
 const KIND_LABELS = { vinyl: 'Đĩa than', cassette: 'Cassette', turntable: 'Mâm đĩa', accessory: 'Phụ kiện' };
 
@@ -187,7 +182,7 @@ function buildTools({ send, user }) {
                 return orders.map((o) => ({
                     order_id: o.MaDH,
                     ordered_at: o.NgayDat,
-                    status: ORDER_STATUS[o.TrangThai] || o.TrangThai,
+                    status: ORDER_STATUS_LABELS[o.TrangThai] || o.TrangThai,
                     total: Number(o.TongTien),
                     payment_method: o.PhuongThucThanhToan,
                     paid: o.TrangThaiTT === 'dathanhtoan',
@@ -280,7 +275,12 @@ async function runAssistant({ history, user, send, signal }) {
         let lineBreak = textSent; // chữ của lần gọi trước (trước khi chạy công cụ) tách đoạn với chữ lần này
         stopReason = null;
         const timeout = new AbortController();
-        const timer = setTimeout(() => timeout.abort(), FIRST_CHUNK_TIMEOUT_MS);
+        let timer = setTimeout(() => timeout.abort(), IDLE_TIMEOUT_MS);
+        // Đếm lại mỗi khi có dữ liệu: trước đây chỉ chờ phần đầu tiên, stream đứng giữa chừng thì khách chờ mãi.
+        const stillAlive = () => {
+            clearTimeout(timer);
+            timer = setTimeout(() => timeout.abort(), IDLE_TIMEOUT_MS);
+        };
         try {
             const stream = await ai.models.generateContentStream({
                 model,
@@ -296,7 +296,7 @@ async function runAssistant({ history, user, send, signal }) {
                 },
             });
             for await (const chunk of stream) {
-                clearTimeout(timer);
+                stillAlive();
                 if (chunk.promptFeedback && chunk.promptFeedback.blockReason) stopReason = chunk.promptFeedback.blockReason;
                 const candidate = chunk.candidates && chunk.candidates[0];
                 if (!candidate) continue;
@@ -316,7 +316,7 @@ async function runAssistant({ history, user, send, signal }) {
             }
         } catch (caught) {
             const error = timeout.signal.aborted && !signal.aborted
-                ? Object.assign(new Error(`${model} không phản hồi sau ${FIRST_CHUNK_TIMEOUT_MS / 1000} giây`), { code: 'MODEL_TIMEOUT' })
+                ? Object.assign(new Error(`${model} không phản hồi sau ${IDLE_TIMEOUT_MS / 1000} giây`), { code: 'MODEL_TIMEOUT' })
                 : caught;
             // Mô hình chính hết lượt, quá tải hoặc quá chậm ngay từ đầu lượt: thử lại một lần bằng mô hình dự phòng.
             if (step === 0 && parts.length === 0 && FALLBACK_MODEL && model !== FALLBACK_MODEL && canFallBack(error) && !signal.aborted) {

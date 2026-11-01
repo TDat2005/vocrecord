@@ -24,6 +24,9 @@ const TABS = [
 ];
 const TAB_IDS = TABS.map((tab) => tab.id);
 const TAB_KEY = 'voc_account_tab';
+const readSavedTab = () => {
+  try { return localStorage.getItem(TAB_KEY); } catch { return null; }
+};
 
 const ORDER_FILTERS = [
   { id: 'all', label: 'Tất cả', match: () => true },
@@ -264,6 +267,7 @@ function ProfileTab({ profile, onSaved }) {
 
 function PasswordTab() {
   const toast = useToast();
+  const user = useCurrentUser();
   const [form, setForm] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' });
   const [saving, setSaving] = useState(false);
 
@@ -277,7 +281,9 @@ function PasswordTab() {
     try {
       const data = await api.put('/account/change-password', { currentPassword: form.currentPassword, newPassword: form.newPassword });
       if (data.success) {
-        toast.success('Đổi mật khẩu thành công');
+        // Đổi mật khẩu làm các phiên cũ hết hiệu lực: lưu vé mới server trả về để vẫn đăng nhập trên trình duyệt này.
+        if (data.token && user) saveSession(data.token, user);
+        toast.success('Đổi mật khẩu thành công. Các thiết bị khác đã được đăng xuất.');
         setForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
       } else {
         toast.error(data.message || 'Không thể đổi mật khẩu');
@@ -341,12 +347,12 @@ export function Account() {
   const [addresses, setAddresses] = useState([]);
 
   const urlTab = searchParams.get('tab');
-  const savedTab = localStorage.getItem(TAB_KEY);
+  const savedTab = readSavedTab();
   const activeTab = TAB_IDS.includes(urlTab) ? urlTab : TAB_IDS.includes(savedTab) ? savedTab : 'orders';
   const customerId = user?.customer_id;
 
   const changeTab = (tab) => {
-    localStorage.setItem(TAB_KEY, tab);
+    try { localStorage.setItem(TAB_KEY, tab); } catch { /* trình duyệt chặn lưu trữ */ }
     setSearchParams({ tab }, { replace: true });
   };
 

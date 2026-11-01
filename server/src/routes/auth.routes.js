@@ -1,72 +1,63 @@
+const crypto = require('crypto');
 const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
 
 const pool = require('../config/database');
 const TaiKhoanModel = require('../models/taikhoan.model');
 const KhachHangModel = require('../models/khachhang.model');
 const OtpModel = require('../models/otp.model');
-const { isPhone, PHONE_MESSAGE } = require('../utils/validate');
+const { isPhone, PHONE_MESSAGE, MIN_PASSWORD } = require('../utils/validate');
+const { withTransaction } = require('../utils/db');
+const { issueToken } = require('../utils/token');
 const EmailService = require('../services/email.service');
+const { forgetAccountStatus } = require('../middleware/auth.middleware');
 const { rateLimit } = require('../middleware/rate-limit.middleware');
 
-const JWT_SECRET = process.env.JWT_SECRET;
 const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 10, message: 'Bạn đăng nhập sai hoặc thử quá nhiều lần. Vui lòng thử lại sau 15 phút.' });
 const otpLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 5, message: 'Bạn đã yêu cầu OTP quá nhiều lần. Vui lòng thử lại sau.' });
 // Giới hạn số lần nhập OTP: mã chỉ có 6 chữ số nên không chặn thì có thể dò hết trong 5 phút hiệu lực.
 const verifyLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 10, message: 'Bạn nhập mã OTP quá nhiều lần. Vui lòng thử lại sau 15 phút.' });
+
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+// Email là tên đăng nhập của khách: luôn so sánh ở dạng chữ thường, bỏ khoảng trắng.
+const normalizeEmail = (value) => String(value || '').trim().toLowerCase();
+// Mã OTP sinh bằng bộ sinh số ngẫu nhiên an toàn (Math.random có thể đoán được).
+const newOtp = () => String(crypto.randomInt(100000, 1000000));
+const bad = (res, message, status = 400) => res.status(status).json({ success: false, message });
 
 // POST /login
 router.post('/login', loginLimiter, async (req, res, next) => {
     try {
         const { username, password } = req.body;
 
-        if (!username || !password) {
-            return res.json({ success: false, message: 'Vui lòng nhập tài khoản và mật khẩu.' });
+        if (!username || !password) return bad(res, 'Vui lòng nhập tài khoản và mật khẩu.');
+        if (!process.env.JWT_SECRET) return bad(res, 'Máy chủ chưa cấu hình xác thực.', 503);
+
+        const user = await TaiKhoanModel.findByUsername(String(username).trim());
+        if (!user || !(await bcrypt.compare(String(password), user.MatKhau))) {
+            return bad(res, 'Sai tài khoản hoặc mật khẩu!');
         }
-        if (!JWT_SECRET) return res.status(503).json({ success: false, message: 'Máy chủ chưa cấu hình xác thực.' });
+        if (Number(user.TrangThai) === 0) return bad(res, 'Tài khoản của bạn đã bị khoá. Vui lòng liên hệ Admin.', 403);
 
-        const user = await TaiKhoanModel.findByUsername(username);
+        // Đăng nhập đúng thì xóa bộ đếm: giới hạn chỉ nhằm chặn dò mật khẩu.
+        loginLimiter.reset(req);
 
-        if (user && await bcrypt.compare(password, user.MatKhau)) {
-            if (user.TrangThai === 0) {
-                return res.json({ success: false, message: 'Tài khoản của bạn đã bị khoá. Vui lòng liên hệ Admin.' });
-            }
-
-            // Đăng nhập đúng thì xóa bộ đếm: giới hạn chỉ nhằm chặn dò mật khẩu.
-            loginLimiter.reset(req);
-
-            const profile = await KhachHangModel.getByAccountId(user.MaTK);
-            const customerId = profile ? profile.MaKH : null;
-            let name = profile ? profile.HoTen : '';
-            if (user.VaiTro !== 'khachhang') {
-                // Nhân viên/admin: ưu tiên tên trong hồ sơ nhân viên (header & trang quản trị hiển thị tên này).
-                const [staffRows] = await pool.query('SELECT HoTen FROM NhanVien WHERE MaTK = ? LIMIT 1', [user.MaTK]);
-                name = staffRows[0]?.HoTen || name;
-            }
-
-            // Generate JWT
-            const token = jwt.sign(
-                { id: user.MaTK, customerId, username: user.TenDangNhap, role: user.VaiTro },
-                JWT_SECRET,
-                { expiresIn: '1d' }
-            );
-
-            return res.json({
-                success: true,
-                token,
-                user: {
-                    id: user.MaTK,
-                    customer_id: customerId,
-                    username: user.TenDangNhap,
-                    name: name,
-                    role: user.VaiTro
-                }
-            });
-        } else {
-            return res.json({ success: false, message: 'Sai tài khoản hoặc mật khẩu!' });
+        const profile = await KhachHangModel.getByAccountId(user.MaTK);
+        const customerId = profile ? profile.MaKH : null;
+        let name = profile ? profile.HoTen : '';
+        if (user.VaiTro !== 'khachhang') {
+            // Nhân viên/admin: ưu tiên tên trong hồ sơ nhân viên (header & trang quản trị hiển thị tên này).
+            const [staffRows] = await pool.query('SELECT HoTen FROM NhanVien WHERE MaTK = ? LIMIT 1', [user.MaTK]);
+            name = staffRows[0]?.HoTen || name;
         }
+
+        const token = issueToken({ accountId: user.MaTK, customerId, username: user.TenDangNhap, role: user.VaiTro });
+        return res.json({
+            success: true,
+            token,
+            user: { id: user.MaTK, customer_id: customerId, username: user.TenDangNhap, name, role: user.VaiTro },
+        });
     } catch (error) {
         next(error);
     }
@@ -75,36 +66,20 @@ router.post('/login', loginLimiter, async (req, res, next) => {
 // POST /register (cũ, không xác thực OTP) đã được gỡ bỏ:
 // đăng ký bắt buộc đi qua /send-register-otp -> /verify-register-otp (UC01).
 
+const emailTaken = async (email) => Boolean(await TaiKhoanModel.findByUsername(email) || await KhachHangModel.findByEmail(email));
+
 // POST /send-register-otp
 router.post('/send-register-otp', otpLimiter, async (req, res, next) => {
     try {
-        const email = (req.body.email || '').trim().toLowerCase();
+        const email = normalizeEmail(req.body.email);
+        if (!EMAIL_REGEX.test(email)) return bad(res, 'Email không hợp lệ.');
+        if (await emailTaken(email)) return bad(res, 'Email này đã được đăng ký. Vui lòng đăng nhập.', 409);
 
-        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        if (!email || !emailRegex.test(email)) {
-            return res.json({ success: false, message: 'Email không hợp lệ.' });
-        }
-
-        const existingUser = await TaiKhoanModel.findByUsername(email);
-        if (existingUser) {
-            return res.json({ success: false, message: 'Email này đã được đăng ký. Vui lòng đăng nhập.' });
-        }
-
-        const existingKhachHang = await KhachHangModel.findByEmail(email);
-        if (existingKhachHang) {
-            return res.json({ success: false, message: 'Email này đã được đăng ký. Vui lòng đăng nhập.' });
-        }
-
-        const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
-
+        const otpCode = newOtp();
         await OtpModel.create(email, otpCode, 'dangky');
         const sent = await EmailService.sendOTP(email, otpCode, 'dangky');
-
-        if (sent) {
-            return res.json({ success: true, message: 'Mã OTP đã được gửi đến email của bạn.' });
-        } else {
-            return res.json({ success: false, message: 'Không thể gửi email. Vui lòng thử lại sau.' });
-        }
+        if (!sent) return bad(res, 'Không thể gửi email. Vui lòng thử lại sau.', 502);
+        return res.json({ success: true, message: 'Mã OTP đã được gửi đến email của bạn.' });
     } catch (error) {
         next(error);
     }
@@ -112,87 +87,50 @@ router.post('/send-register-otp', otpLimiter, async (req, res, next) => {
 
 // POST /verify-register-otp
 router.post('/verify-register-otp', verifyLimiter, async (req, res, next) => {
-    let connection;
     try {
-        const email = (req.body.email || '').trim().toLowerCase();
-        const otpCode = (req.body.otp || '').trim();
-        const password = req.body.password || '';
-        const fullname = (req.body.fullname || '').trim();
-        const phone = (req.body.phone || '').trim();
+        const email = normalizeEmail(req.body.email);
+        const otpCode = String(req.body.otp || '').trim();
+        const password = String(req.body.password || '');
+        const fullname = String(req.body.fullname || '').trim().slice(0, 100);
+        const phone = String(req.body.phone || '').trim();
 
-        if (!email || !otpCode || !password) {
-            return res.json({ success: false, message: 'Thiếu thông tin bắt buộc.' });
-        }
-
-        if (password.length < 6) {
-            return res.json({ success: false, message: 'Mật khẩu phải có ít nhất 6 ký tự.' });
-        }
-        if (phone && !isPhone(phone)) return res.json({ success: false, message: PHONE_MESSAGE });
+        if (!email || !otpCode || !password) return bad(res, 'Thiếu thông tin bắt buộc.');
+        if (password.length < MIN_PASSWORD) return bad(res, `Mật khẩu phải có ít nhất ${MIN_PASSWORD} ký tự.`);
+        if (phone && !isPhone(phone)) return bad(res, PHONE_MESSAGE);
 
         const validOtp = await OtpModel.verify(email, otpCode, 'dangky');
-        if (!validOtp) {
-            return res.json({ success: false, message: 'Mã OTP không đúng hoặc đã hết hạn.' });
-        }
-
-        const existingUser = await TaiKhoanModel.findByUsername(email);
-        if (existingUser) {
-            return res.json({ success: false, message: 'Email này đã được đăng ký. Vui lòng đăng nhập.' });
-        }
-
-        const existingKhachHang = await KhachHangModel.findByEmail(email);
-        if (existingKhachHang) {
-            return res.json({ success: false, message: 'Email này đã được đăng ký. Vui lòng đăng nhập.' });
-        }
-
-        connection = await pool.getConnection();
-        await connection.beginTransaction();
+        if (!validOtp) return bad(res, 'Mã OTP không đúng hoặc đã hết hạn.');
+        if (await emailTaken(email)) return bad(res, 'Email này đã được đăng ký. Vui lòng đăng nhập.', 409);
 
         const hashedPassword = await bcrypt.hash(password, 10);
-        const maTK = await TaiKhoanModel.create(email, hashedPassword, 'khachhang', connection);
-        
-        await KhachHangModel.create(fullname ? fullname : email, email, maTK, phone || null, null, connection);
-        await OtpModel.markUsed(email, otpCode, connection);
-
-        await connection.commit();
-        
+        await withTransaction(async (connection) => {
+            const maTK = await TaiKhoanModel.create(email, hashedPassword, 'khachhang', connection);
+            await KhachHangModel.create(fullname || email, email, maTK, phone || null, null, connection);
+            await OtpModel.markUsed(email, otpCode, 'dangky', connection);
+        });
         return res.json({ success: true, message: 'Đăng ký thành công! Chào mừng bạn đến với Vọc Records.' });
     } catch (error) {
-        if (connection) {
-            try { await connection.rollback(); } catch (e) { console.error('Rollback error:', e); }
-        }
-        console.error('Lỗi verify-register-otp:', error);
-        return res.json({ 
-            success: false, 
-            message: error.code === 'ER_DUP_ENTRY' 
-                ? 'Lỗi: Email đã tồn tại.' 
-                : 'Lỗi hệ thống: ' + (error.message || 'Không thể hoàn tất đăng ký.') 
-        });
-    } finally {
-        if (connection) connection.release();
+        // Hai lần bấm đăng ký cùng lúc: lần sau trùng email.
+        if (error.code === 'ER_DUP_ENTRY') return bad(res, 'Email này đã được đăng ký. Vui lòng đăng nhập.', 409);
+        next(error);
     }
 });
 
 // POST /send-forgot-otp
 router.post('/send-forgot-otp', otpLimiter, async (req, res, next) => {
     try {
-        const email = (req.body.email || '').trim();
+        const email = normalizeEmail(req.body.email);
+        if (!EMAIL_REGEX.test(email)) return bad(res, 'Email không hợp lệ.');
 
-        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        if (!email || !emailRegex.test(email)) {
-            return res.json({ success: false, message: 'Email không hợp lệ.' });
-        }
-
+        // Trả cùng một câu dù email có hay không, để không dò được email nào đã đăng ký.
+        const message = 'Nếu email tồn tại trong hệ thống, mã OTP sẽ được gửi.';
         const user = await TaiKhoanModel.findByUsername(email);
-        if (!user) {
-            return res.json({ success: true, message: 'Nếu email tồn tại trong hệ thống, mã OTP sẽ được gửi.' });
-        }
+        if (!user) return res.json({ success: true, message });
 
-        const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+        const otpCode = newOtp();
         await OtpModel.create(email, otpCode, 'quenmatkhau');
-
         await EmailService.sendOTP(email, otpCode, 'quenmatkhau');
-
-        return res.json({ success: true, message: 'Nếu email tồn tại trong hệ thống, mã OTP sẽ được gửi.' });
+        return res.json({ success: true, message });
     } catch (error) {
         next(error);
     }
@@ -201,18 +139,12 @@ router.post('/send-forgot-otp', otpLimiter, async (req, res, next) => {
 // POST /verify-forgot-otp
 router.post('/verify-forgot-otp', verifyLimiter, async (req, res, next) => {
     try {
-        const email = (req.body.email || '').trim();
-        const otpCode = (req.body.otp || '').trim();
-
-        if (!email || !otpCode) {
-            return res.json({ success: false, message: 'Thiếu thông tin.' });
-        }
+        const email = normalizeEmail(req.body.email);
+        const otpCode = String(req.body.otp || '').trim();
+        if (!email || !otpCode) return bad(res, 'Thiếu thông tin.');
 
         const validOtp = await OtpModel.verify(email, otpCode, 'quenmatkhau');
-        if (!validOtp) {
-            return res.json({ success: false, message: 'Mã OTP không đúng hoặc đã hết hạn.' });
-        }
-
+        if (!validOtp) return bad(res, 'Mã OTP không đúng hoặc đã hết hạn.');
         return res.json({ success: true, message: 'Xác thực thành công. Bạn có thể đặt mật khẩu mới.' });
     } catch (error) {
         next(error);
@@ -222,37 +154,28 @@ router.post('/verify-forgot-otp', verifyLimiter, async (req, res, next) => {
 // POST /reset-password
 router.post('/reset-password', verifyLimiter, async (req, res, next) => {
     try {
-        const email = (req.body.email || '').trim();
-        const otpCode = (req.body.otp || '').trim();
-        const newPassword = req.body.new_password || '';
+        const email = normalizeEmail(req.body.email);
+        const otpCode = String(req.body.otp || '').trim();
+        const newPassword = String(req.body.new_password || '');
 
-        if (!email || !otpCode || !newPassword) {
-            return res.json({ success: false, message: 'Thiếu thông tin.' });
-        }
-
-        if (newPassword.length < 6) {
-            return res.json({ success: false, message: 'Mật khẩu phải có ít nhất 6 ký tự.' });
-        }
+        if (!email || !otpCode || !newPassword) return bad(res, 'Thiếu thông tin.');
+        if (newPassword.length < MIN_PASSWORD) return bad(res, `Mật khẩu phải có ít nhất ${MIN_PASSWORD} ký tự.`);
 
         const validOtp = await OtpModel.verify(email, otpCode, 'quenmatkhau');
-        if (!validOtp) {
-            return res.json({ success: false, message: 'Mã OTP không hợp lệ hoặc đã hết hạn. Vui lòng thử lại.' });
-        }
+        if (!validOtp) return bad(res, 'Mã OTP không hợp lệ hoặc đã hết hạn. Vui lòng thử lại.');
 
         const user = await TaiKhoanModel.findByUsername(email);
-        if (!user) {
-            return res.json({ success: false, message: 'Không tìm thấy tài khoản.' });
-        }
+        if (!user) return bad(res, 'Không tìm thấy tài khoản.', 404);
 
         const hashedPassword = await bcrypt.hash(newPassword, 10);
-        const updated = await TaiKhoanModel.updatePassword(user.MaTK, hashedPassword);
-
-        if (updated) {
-            await OtpModel.markUsed(email, otpCode);
-            return res.json({ success: true, message: 'Đổi mật khẩu thành công!' });
-        } else {
-            return res.json({ success: false, message: 'Lỗi cập nhật mật khẩu.' });
-        }
+        await withTransaction(async (connection) => {
+            // Đánh dấu mã đã dùng trước: hai request cùng mã chạy song song thì chỉ một request đổi được mật khẩu.
+            const used = await OtpModel.markUsed(email, otpCode, 'quenmatkhau', connection);
+            if (!used) throw Object.assign(new Error('Mã OTP đã được sử dụng.'), { status: 400 });
+            await TaiKhoanModel.updatePassword(user.MaTK, hashedPassword, connection);
+        });
+        forgetAccountStatus(user.MaTK); // các phiên đăng nhập cũ hết hiệu lực ngay
+        return res.json({ success: true, message: 'Đổi mật khẩu thành công!' });
     } catch (error) {
         next(error);
     }

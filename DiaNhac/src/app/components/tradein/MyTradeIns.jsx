@@ -12,7 +12,7 @@ import {
   PAYOUT_METHODS, TRADEIN_MODES, TRADEIN_STEPS, TRADEIN_STEP_INDEX, WALLET_ENTRY_TYPES,
   getConsignmentStatus, getTradeInStatus,
 } from '../../utils/status';
-import { percent, usePolicy } from '../../utils/tradein';
+import { consignPayout, percent, usePolicy, withCreditBonus } from '../../utils/tradein';
 import '../../../styles/pages/tradein.css';
 
 // Khách chấp nhận báo giá: chọn bán đứt hay ký gửi và cách nhận tiền.
@@ -24,9 +24,9 @@ function RespondForm({ request, policy, onDone }) {
   const [sending, setSending] = useState(false);
   const bonus = policy ? policy.creditBonus : 0;
   const buyTotal = request.offer_buy_total || 0;
-  const buyWithBonus = Math.round(buyTotal * (1 + bonus) / 10000) * 10000;
+  const buyWithBonus = withCreditBonus(policy, buyTotal);
   const listTotal = request.offer_list_total || 0;
-  const consignPayout = policy ? Math.round(listTotal * (1 - policy.commissionRate)) : listTotal;
+  const consignTotal = consignPayout(policy, listTotal);
 
   const respond = async (accept) => {
     if (!accept && !window.confirm('Không bán đĩa theo báo giá này? Cửa hàng sẽ liên hệ trả lại đĩa.')) return;
@@ -62,7 +62,7 @@ function RespondForm({ request, policy, onDone }) {
           <div className="choice__body">
             <p className="choice__title">Ký gửi · niêm yết {formatPrice(listTotal)}</p>
             <p className="choice__desc">
-              Bán được bạn nhận khoảng {formatPrice(consignPayout)}{policy ? ` (cửa hàng giữ ${percent(policy.commissionRate)} hoa hồng, hợp đồng ${policy.consignmentDays} ngày)` : ''}.
+              Bán được bạn nhận khoảng {formatPrice(consignTotal)}{policy ? ` (cửa hàng giữ ${percent(policy.commissionRate)} hoa hồng, hợp đồng ${policy.consignmentDays} ngày)` : ''}.
             </p>
           </div>
         </label>
@@ -287,7 +287,7 @@ export function MyTradeIns() {
                       </td>
                       <td className="is-numeric">{formatPrice(contract.list_price)}</td>
                       <td><StatusBadge status={getConsignmentStatus(contract.status)} />{contract.expired && <div className="text-xs text-critical">Đã quá hạn ký gửi</div>}</td>
-                      <td className="is-numeric">{contract.payout !== null ? formatPrice(contract.payout) : <span className="text-muted text-sm">~{formatPrice(contract.list_price * (1 - contract.commission_rate))}</span>}</td>
+                      <td className="is-numeric">{contract.payout !== null ? formatPrice(contract.payout) : <span className="text-muted text-sm">~{formatPrice(consignPayout({ commissionRate: contract.commission_rate }, contract.list_price))}</span>}</td>
                       <td>{contract.status === 'dangban' && <button type="button" className="btn btn--plain text-sm" onClick={() => withdraw(contract)}>Rút đĩa</button>}</td>
                     </tr>
                   ))}

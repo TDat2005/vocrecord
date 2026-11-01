@@ -1,4 +1,5 @@
 const axios = require('axios');
+const { SHIPPING_FEE } = require('../constants/order');
 
 const GHN_BASE_URL = process.env.GHN_ENV === 'production'
     ? 'https://online-gateway.ghn.vn/shiip/public-api'
@@ -94,24 +95,6 @@ class GHNService {
         }
     }
 
-    static async calculateFee(payload) {
-        if (this.isConfigured()) {
-            try {
-                return await this.request('POST', '/v2/shipping-order/fee', { data: payload });
-            } catch (err) {
-                console.warn('GHN calculateFee API failed, using staging fallback:', err.message);
-            }
-        }
-        return {
-            total: 30000,
-            service_fee: 30000,
-            insurance_fee: 0,
-            pick_station_fee: 0,
-            coupon_value: 0,
-            r2s_fee: 0
-        };
-    }
-
     static async createOrder(payload) {
         if (this.isConfigured() && process.env.GHN_ENV === 'production') {
             return this.request('POST', '/v2/shipping-order/create', { data: payload });
@@ -136,7 +119,7 @@ class GHNService {
 
         return {
             order_code: mockCode,
-            total_fee: 30000,
+            total_fee: SHIPPING_FEE,
             expected_delivery_time: deliveryDate.toISOString(),
             status: 'ready_to_pick',
             is_staging: true,
@@ -152,7 +135,7 @@ class GHNService {
                 order_code: orderCode,
                 status: 'ready_to_pick',
                 status_name: 'Đang chuẩn bị hàng / Chờ lấy hàng',
-                total_fee: 30000,
+                total_fee: SHIPPING_FEE,
                 expected_delivery_time: deliveryDate.toISOString(),
                 is_staging: true
             };
@@ -165,7 +148,7 @@ class GHNService {
                 order_code: orderCode,
                 status: 'ready_to_pick',
                 status_name: 'Đang chuẩn bị hàng (Staging)',
-                total_fee: 30000,
+                total_fee: SHIPPING_FEE,
                 is_staging: true
             };
         }

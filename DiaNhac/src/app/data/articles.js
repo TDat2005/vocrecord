@@ -1,22 +1,13 @@
+import { useCachedGet } from '../hooks/useCachedGet';
+
 // Bài viết (blog) và hướng dẫn dùng chung bảng BaiViet; type = 'blog' | 'huongdan'.
 
-export const BLOG_CATEGORIES = [
-  'Tất cả',
-  'Kiến thức Vinyl',
-  'Review Album',
-  'Nghệ sĩ & Câu chuyện',
-  'Văn hóa Analog',
-];
+// Chuyên mục và độ khó do server quy định (GET /api/blogs/meta), không viết lại danh sách ở đây.
+export const useBlogMeta = () => useCachedGet('/blogs/meta');
 
-export const GUIDE_CATEGORIES = [
-  'Tất cả',
-  'Hướng dẫn cơ bản',
-  'Bảo trì thiết bị',
-  'Kỹ thuật nâng cao',
-];
-
-export function getArticleCategory(article, type) {
-  return article.category || (type === 'huongdan' ? 'Hướng dẫn cơ bản' : 'Kiến thức Vinyl');
+// Bài cũ (trước migration 05) chưa có chuyên mục.
+export function getArticleCategory(article) {
+  return article.category || 'Khác';
 }
 
 export function getArticleExcerpt(content = '', summary = '') {

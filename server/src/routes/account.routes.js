@@ -1,90 +1,81 @@
 const express = require('express');
 const router = express.Router();
-const { isPhone, PHONE_MESSAGE } = require('../utils/validate');
+const { isPhone, PHONE_MESSAGE, MIN_PASSWORD } = require('../utils/validate');
 const bcrypt = require('bcryptjs');
 const KhachHangModel = require('../models/khachhang.model');
 const TaiKhoanModel = require('../models/taikhoan.model');
-const { authenticate } = require('../middleware/auth.middleware');
+const { authenticate, forgetAccountStatus } = require('../middleware/auth.middleware');
+const { issueToken } = require('../utils/token');
 
 router.use(authenticate);
 
-// GET /profile?customer_id=...
-router.get('/profile', async (req, res, next) => {
-    try {
-        const customerId = req.user.customerId;
-        if (!customerId) return res.status(403).json({ success: false, message: 'Tài khoản chưa có hồ sơ khách hàng' });
+const bad = (res, message, status = 400) => res.status(status).json({ success: false, message });
 
-        const profile = await KhachHangModel.getProfile(customerId);
-        if (profile) {
-            return res.json({
-                success: true,
-                data: {
-                    fullName: profile.HoTen,
-                    email: profile.Email,
-                    phone: profile.SoDienThoai,
-                    address: profile.DiaChi
-                }
-            });
-        } else {
-            return res.json({ success: false, message: 'Không tìm thấy khách hàng' });
-        }
+// Các route sổ địa chỉ/hồ sơ chỉ dành cho tài khoản có hồ sơ khách hàng.
+const requireCustomer = (req, res, next) => {
+    if (!req.user.customerId) return bad(res, 'Tài khoản chưa có hồ sơ khách hàng', 403);
+    next();
+};
+
+// GET /profile
+router.get('/profile', requireCustomer, async (req, res, next) => {
+    try {
+        const profile = await KhachHangModel.getProfile(req.user.customerId);
+        if (!profile) return bad(res, 'Không tìm thấy khách hàng', 404);
+        return res.json({
+            success: true,
+            data: { fullName: profile.HoTen, email: profile.Email, phone: profile.SoDienThoai, address: profile.DiaChi },
+        });
     } catch (error) {
         next(error);
     }
 });
 
 // PUT /profile
-router.put('/profile', async (req, res, next) => {
+router.put('/profile', requireCustomer, async (req, res, next) => {
     try {
-        const customerId = req.user.customerId;
-        const { fullName = '', phone = '', address } = req.body;
+        const fullName = String(req.body.fullName ?? '').trim();
+        const phone = String(req.body.phone ?? '').trim();
+        const { address } = req.body;
 
-        if (!customerId) {
-            return res.status(403).json({ success: false, message: 'Tài khoản chưa có hồ sơ khách hàng' });
-        }
-        if (!String(fullName).trim()) return res.status(400).json({ success: false, message: 'Vui lòng nhập họ tên.' });
-        if (String(phone).trim() && !isPhone(phone)) return res.status(400).json({ success: false, message: PHONE_MESSAGE });
+        if (!fullName || fullName.length > 100) return bad(res, 'Vui lòng nhập họ tên (tối đa 100 ký tự).');
+        if (phone && !isPhone(phone)) return bad(res, PHONE_MESSAGE);
+        if (address !== undefined && String(address).length > 500) return bad(res, 'Địa chỉ quá dài.');
 
-        await KhachHangModel.updateProfile(customerId, String(fullName).trim(), String(phone).trim(), address);
+        await KhachHangModel.updateProfile(req.user.customerId, fullName, phone, address === undefined ? undefined : String(address).trim());
         return res.json({ success: true, message: 'Cập nhật thông tin thành công' });
     } catch (error) {
-        return res.json({ success: false, message: 'Lỗi cập nhật: ' + error.message });
+        next(error);
     }
 });
 
 // GET /addresses
-router.get('/addresses', async (req, res, next) => {
+router.get('/addresses', requireCustomer, async (req, res, next) => {
     try {
-        const customerId = req.user.customerId;
-        if (!customerId) return res.status(403).json({ success: false, message: 'Tài khoản chưa có hồ sơ khách hàng' });
-
-        const addresses = await KhachHangModel.getAddresses(customerId);
-        return res.json({ success: true, data: addresses });
+        return res.json({ success: true, data: await KhachHangModel.getAddresses(req.user.customerId) });
     } catch (error) {
         next(error);
     }
 });
 
 // POST /addresses
-router.post('/addresses', async (req, res, next) => {
+router.post('/addresses', requireCustomer, async (req, res, next) => {
     try {
-        const customerId = req.user.customerId;
-        if (!customerId) return res.status(403).json({ success: false, message: 'Tài khoản chưa có hồ sơ khách hàng' });
+        const { provinceId, provinceName, wardId, wardName, isDefault = false } = req.body;
+        const nguoiNhan = String(req.body.nguoiNhan || '').trim();
+        const soDienThoai = String(req.body.soDienThoai || '').trim();
+        const diaChi = String(req.body.diaChi || '').trim();
+        if (!nguoiNhan || !soDienThoai || !diaChi) return bad(res, 'Vui lòng điền đầy đủ tên người nhận, số điện thoại và địa chỉ.');
+        if (nguoiNhan.length > 100 || diaChi.length > 255) return bad(res, 'Tên người nhận tối đa 100 ký tự, địa chỉ tối đa 255 ký tự.');
+        if (!isPhone(soDienThoai)) return bad(res, PHONE_MESSAGE);
 
-        const { nguoiNhan, soDienThoai, diaChi, provinceId, provinceName, wardId, wardName, isDefault = false } = req.body;
-        if (!nguoiNhan || !soDienThoai || !diaChi) {
-            return res.json({ success: false, message: 'Vui lòng điền đầy đủ tên người nhận, số điện thoại và địa chỉ.' });
-        }
-        if (!isPhone(soDienThoai)) return res.status(400).json({ success: false, message: PHONE_MESSAGE });
-
-        const newId = await KhachHangModel.createAddress(customerId, {
-            nguoiNhan: nguoiNhan.trim(),
-            soDienThoai: soDienThoai.trim(),
-            diaChi: diaChi.trim(),
+        const newId = await KhachHangModel.createAddress(req.user.customerId, {
+            nguoiNhan,
+            soDienThoai,
+            diaChi,
             ghn: { provinceId, provinceName, wardId, wardName },
-            isDefault: Boolean(isDefault)
+            isDefault: Boolean(isDefault),
         });
-
         return res.json({ success: true, message: 'Thêm địa chỉ giao hàng thành công!', addressId: newId });
     } catch (error) {
         next(error);
@@ -92,31 +83,21 @@ router.post('/addresses', async (req, res, next) => {
 });
 
 // DELETE /addresses/:id
-router.delete('/addresses/:id', async (req, res, next) => {
+router.delete('/addresses/:id', requireCustomer, async (req, res, next) => {
     try {
-        const customerId = req.user.customerId;
-        const addressId = req.params.id;
-        if (!customerId) return res.status(403).json({ success: false, message: 'Tài khoản chưa có hồ sơ khách hàng' });
-
-        const deleted = await KhachHangModel.deleteAddress(customerId, addressId);
-        if (deleted) {
-            return res.json({ success: true, message: 'Đã xóa địa chỉ thành công!' });
-        } else {
-            return res.json({ success: false, message: 'Không tìm thấy địa chỉ để xóa.' });
-        }
+        const deleted = await KhachHangModel.deleteAddress(req.user.customerId, req.params.id);
+        if (!deleted) return bad(res, 'Không tìm thấy địa chỉ để xóa.', 404);
+        return res.json({ success: true, message: 'Đã xóa địa chỉ thành công!' });
     } catch (error) {
         next(error);
     }
 });
 
 // PUT /addresses/:id/default
-router.put('/addresses/:id/default', async (req, res, next) => {
+router.put('/addresses/:id/default', requireCustomer, async (req, res, next) => {
     try {
-        const customerId = req.user.customerId;
-        const addressId = req.params.id;
-        if (!customerId) return res.status(403).json({ success: false, message: 'Tài khoản chưa có hồ sơ khách hàng' });
-
-        await KhachHangModel.setDefaultAddress(customerId, addressId);
+        const updated = await KhachHangModel.setDefaultAddress(req.user.customerId, req.params.id);
+        if (!updated) return bad(res, 'Không tìm thấy địa chỉ.', 404);
         return res.json({ success: true, message: 'Đã đặt làm địa chỉ mặc định!' });
     } catch (error) {
         next(error);
@@ -124,32 +105,24 @@ router.put('/addresses/:id/default', async (req, res, next) => {
 });
 
 // PUT /change-password
+// Đổi mật khẩu làm các phiên đăng nhập khác hết hiệu lực; trả vé mới để phiên hiện tại vẫn dùng tiếp.
 router.put('/change-password', async (req, res, next) => {
     try {
         const userId = req.user.id;
-        const { currentPassword, newPassword } = req.body;
+        const currentPassword = String(req.body.currentPassword || '');
+        const newPassword = String(req.body.newPassword || '');
 
-        if (!currentPassword || !newPassword) {
-            return res.json({ success: false, message: 'Vui lòng nhập mật khẩu hiện tại và mật khẩu mới.' });
-        }
-        if (newPassword.length < 6) {
-            return res.json({ success: false, message: 'Mật khẩu mới phải có ít nhất 6 ký tự.' });
-        }
+        if (!currentPassword || !newPassword) return bad(res, 'Vui lòng nhập mật khẩu hiện tại và mật khẩu mới.');
+        if (newPassword.length < MIN_PASSWORD) return bad(res, `Mật khẩu mới phải có ít nhất ${MIN_PASSWORD} ký tự.`);
 
         const user = await TaiKhoanModel.findById(userId);
-        if (!user) {
-            return res.json({ success: false, message: 'Không tìm thấy tài khoản người dùng.' });
-        }
+        if (!user) return bad(res, 'Không tìm thấy tài khoản người dùng.', 404);
+        if (!(await bcrypt.compare(currentPassword, user.MatKhau))) return bad(res, 'Mật khẩu hiện tại không chính xác!');
 
-        const isMatch = await bcrypt.compare(currentPassword, user.MatKhau);
-        if (!isMatch) {
-            return res.json({ success: false, message: 'Mật khẩu hiện tại không chính xác!' });
-        }
-
-        const hashedPassword = await bcrypt.hash(newPassword, 10);
-        await TaiKhoanModel.updatePassword(userId, hashedPassword);
-
-        return res.json({ success: true, message: 'Đổi mật khẩu thành công!' });
+        await TaiKhoanModel.updatePassword(userId, await bcrypt.hash(newPassword, 10));
+        forgetAccountStatus(userId);
+        const token = issueToken({ accountId: userId, customerId: req.user.customerId, username: req.user.username, role: req.user.role });
+        return res.json({ success: true, message: 'Đổi mật khẩu thành công!', token });
     } catch (error) {
         next(error);
     }

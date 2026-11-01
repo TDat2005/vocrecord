@@ -96,7 +96,8 @@ export function printInvoice({ info, items = [] }) {
       <tr><td>Tạm tính</td><td class="right">${formatPrice(subtotal)}</td></tr>
       ${Number(info.SoTienGiam) > 0 ? `<tr><td>Giảm giá (${escapeHtml(info.CodeGiamGia || 'Voucher')})</td><td class="right">−${formatPrice(info.SoTienGiam)}</td></tr>` : ''}
       <tr><td>Phí vận chuyển</td><td class="right">${formatPrice(info.PhiVanChuyen)}</td></tr>
-      <tr class="total"><td>Tổng thanh toán</td><td class="right">${formatPrice(info.TongTien)}</td></tr>
+      ${Number(info.SoTienTinDung) > 0 ? `<tr><td>Trả bằng ví tín dụng</td><td class="right">−${formatPrice(info.SoTienTinDung)}</td></tr>` : ''}
+      <tr class="total"><td>${Number(info.SoTienTinDung) > 0 ? 'Còn phải thanh toán' : 'Tổng thanh toán'}</td><td class="right">${formatPrice(info.TongTien)}</td></tr>
     </table>
     <div class="signatures">
       <div><strong>Khách hàng</strong>(Ký, ghi rõ họ tên)</div>

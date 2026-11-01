@@ -1,0 +1,2 @@
+# Script shell chạy trên Linux (VPS, container MySQL): luôn giữ xuống dòng LF, kể cả khi checkout trên Windows.
+*.sh text eol=lf

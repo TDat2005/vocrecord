@@ -5,16 +5,23 @@ import { api, NETWORK_ERROR } from '../../utils/api';
 import { formatPrice } from '../../utils/format';
 import { PRODUCT_STATUS_OPTIONS } from '../../utils/status';
 import { SafeImage } from '../SafeImage';
-import { Badge, Modal } from '../ui';
+import { useDebounced } from '../../hooks/useDebounced';
+import { Badge, Modal, Pagination } from '../ui';
 import { PageHeader } from './PageHeader';
 import { ProductForm } from './ProductForm';
 
 const STATUS_LABELS = Object.fromEntries(PRODUCT_STATUS_OPTIONS.map((option) => [option.value, option.label]));
 
 // Phiếu nhập kho nhiều dòng (thay cho hộp thoại prompt() nhập "mã:số lượng").
-function ImportStockModal({ products, onClose, onImported }) {
+function ImportStockModal({ onClose, onImported }) {
   const toast = useToast();
+  const [products, setProducts] = useState([]);
   const [rows, setRows] = useState([{ id: '', qty: 1, price: 0 }]);
+
+  // Mọi sản phẩm đang bán (danh sách rút gọn), không chỉ trang kho hàng đang xem.
+  useEffect(() => {
+    api.get('/admin/inventory?all=1').then((data) => { if (data.success) setProducts(data.data || []); }).catch(() => toast.error(NETWORK_ERROR));
+  }, [toast]);
   const [note, setNote] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
@@ -99,16 +106,27 @@ function ImportStockModal({ products, onClose, onImported }) {
 export function Inventory() {
   const toast = useToast();
   const [products, setProducts] = useState([]);
+  const [paging, setPaging] = useState({ page: 1, total: 0, limit: 50 });
+  const [page, setPage] = useState(1);
   const [query, setQuery] = useState('');
   const [editing, setEditing] = useState(null);
   const [saving, setSaving] = useState(false);
   const [showImport, setShowImport] = useState(false);
+  const keyword = useDebounced(query.trim());
 
+  // Tìm kiếm và phân trang ở server (trước đây chỉ tải 200 sản phẩm mới nhất).
   const load = useCallback(() => {
-    api.get('/admin/inventory').then((data) => { if (data.success) setProducts(data.data || []); }).catch(() => toast.error(NETWORK_ERROR));
-  }, [toast]);
+    const params = new URLSearchParams({ page: String(page), limit: '50' });
+    if (keyword) params.set('q', keyword);
+    api.get(`/admin/inventory?${params}`).then((data) => {
+      if (!data.success) return;
+      setProducts(data.data || []);
+      setPaging({ page: data.page || 1, total: data.total ?? 0, limit: data.limit || 50 });
+    }).catch(() => toast.error(NETWORK_ERROR));
+  }, [toast, page, keyword]);
 
   useEffect(() => { load(); }, [load]);
+  useEffect(() => { setPage(1); }, [keyword]);
 
   const startEdit = async (id) => {
     try {
@@ -163,16 +181,12 @@ export function Inventory() {
     );
   }
 
-  const keyword = query.trim().toLowerCase();
-  const visible = products.filter((product) => !keyword
-    || String(product.name).toLowerCase().includes(keyword)
-    || String(product.id).includes(keyword));
 
   return (
     <>
       <PageHeader
         title="Kho hàng"
-        subtitle={`${products.length} sản phẩm`}
+        subtitle={`${paging.total} sản phẩm`}
         actions={<button type="button" className="btn btn--primary" onClick={() => setShowImport(true)}><Plus size={16} /> Nhập kho</button>}
       />
 
@@ -189,8 +203,8 @@ export function Inventory() {
               <tr><th>Sản phẩm</th><th>Phân loại</th><th>Trạng thái</th><th className="is-numeric">Tồn kho</th><th className="is-numeric">Giá bán</th><th /></tr>
             </thead>
             <tbody>
-              {visible.length === 0 && <tr><td colSpan={6} className="table__empty">Không tìm thấy sản phẩm.</td></tr>}
-              {visible.map((product) => (
+              {products.length === 0 && <tr><td colSpan={6} className="table__empty">Không tìm thấy sản phẩm.</td></tr>}
+              {products.map((product) => (
                 <tr key={product.id}>
                   <td>
                     <div className="table-product">
@@ -224,11 +238,11 @@ export function Inventory() {
             </tbody>
           </table>
         </div>
+        <Pagination page={paging.page} total={paging.total} limit={paging.limit} onChange={setPage} />
       </section>
 
       {showImport && (
         <ImportStockModal
-          products={products.filter((product) => product.status !== 'ngungkinhdoanh')}
           onClose={() => setShowImport(false)}
           onImported={() => { setShowImport(false); load(); }}
         />

@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
 const ChatService = require('./chat.service');
+const { resolveUser } = require('../middleware/auth.middleware');
 
 const conversationRoom = (id) => `chat:conversation:${id}`;
 const accountRoom = (id) => `chat:account:${id}`;
@@ -16,11 +17,14 @@ const publishChatMessage = (io, conversation, message) => {
 };
 
 const registerRealtime = (io) => {
-    io.use((socket, next) => {
+    // Kiểm tra giống REST (auth.middleware): tài khoản bị khóa, đổi mật khẩu hoặc đổi vai trò có hiệu lực với cả chat.
+    io.use(async (socket, next) => {
         try {
             const token = socket.handshake.auth?.token;
             if (!token || !process.env.JWT_SECRET) return next(new Error('Unauthorized'));
-            socket.user = jwt.verify(token, process.env.JWT_SECRET);
+            const { user } = await resolveUser(jwt.verify(token, process.env.JWT_SECRET));
+            if (!user) return next(new Error('Unauthorized'));
+            socket.user = user;
             next();
         } catch (error) {
             next(new Error('Unauthorized'));
@@ -29,6 +33,13 @@ const registerRealtime = (io) => {
 
     io.on('connection', (socket) => {
         const user = socket.user;
+        // Kết nối có thể mở nhiều giờ: đọc lại tài khoản trước mỗi thao tác, bị khóa thì ngắt kết nối.
+        const stillAllowed = async () => {
+            const { user: current } = await resolveUser(user).catch(() => ({}));
+            if (current && current.role === user.role) return true;
+            socket.disconnect(true);
+            return false;
+        };
         socket.join(accountRoom(user.id));
         if (ChatService.isStaff(user)) socket.join('chat:staff');
 
@@ -36,6 +47,7 @@ const registerRealtime = (io) => {
             try {
                 const conversationId = Number(typeof payload === 'object' ? payload.conversationId : payload);
                 if (!Number.isInteger(conversationId) || conversationId <= 0) return ack({ success: false, message: 'ID cuộc chat không hợp lệ' });
+                if (!(await stillAllowed())) return ack({ success: false, message: 'Phiên đăng nhập không còn hiệu lực' });
                 const conversation = await ChatService.getConversationById(conversationId);
                 if (!ChatService.canAccess(conversation, user)) return ack({ success: false, message: 'Không có quyền truy cập' });
                 socket.join(conversationRoom(conversationId));
@@ -57,6 +69,7 @@ const registerRealtime = (io) => {
                 if (!Number.isInteger(conversationId) || conversationId <= 0 || !content || content.length > 2000) {
                     return ack({ success: false, message: 'Nội dung chat không hợp lệ' });
                 }
+                if (!(await stillAllowed())) return ack({ success: false, message: 'Phiên đăng nhập không còn hiệu lực' });
                 const conversation = await ChatService.getConversationById(conversationId);
                 if (!ChatService.canAccess(conversation, user)) return ack({ success: false, message: 'Không có quyền truy cập' });
                 const message = await ChatService.saveMessage(conversationId, user, content);

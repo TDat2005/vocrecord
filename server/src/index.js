@@ -8,8 +8,8 @@ const { Server } = require('socket.io');
 const pool = require('./config/database');
 const { registerRealtime } = require('./services/realtime.service');
 const errorMiddleware = require('./middleware/error.middleware');
-const fs = require('fs');
-const path = require('path');
+const { startJobs } = require('./jobs');
+const { SHIPPING_FEE, PAYOS_TIMEOUT_MINUTES, MAX_ORDER_NOTE } = require('./constants/order');
 
 const app = express();
 const httpServer = http.createServer(app);
@@ -41,8 +41,10 @@ app.set('io', io);
 app.use(cors(corsOptions));
 // Tìm bằng ảnh có thể gửi ảnh (base64) lên khi trình duyệt không tự chạy được mô hình: cho phép body lớn hơn.
 app.use('/api/search/image', express.json({ limit: '6mb' }));
-// Thẩm định đĩa cũ: khách gửi tối đa 4 ảnh (base64) cho mỗi đĩa.
-app.use('/api/tradein/items', express.json({ limit: '10mb' }));
+// Thẩm định đĩa cũ: khách gửi tối đa 4 ảnh × 2MB; mã base64 dài hơn ảnh gốc khoảng 1/3 nên cần ~11MB.
+app.use('/api/tradein/items', express.json({ limit: '12mb' }));
+// Gửi yêu cầu trả hàng kèm tối đa 4 ảnh bằng chứng (2MB mỗi ảnh).
+app.post('/api/returns', express.json({ limit: '12mb' }));
 app.use(express.json({ limit: '100kb' }));
 app.use(helmet());
 app.use(morgan('dev'));
@@ -56,37 +58,18 @@ app.get('/health', async (req, res) => {
     }
 });
 
-// Helper to safely load route if exists
-const loadRoute = (routePath, routerName) => {
-    const fullPath = path.join(__dirname, 'routes', `${routerName}.routes.js`);
-    if (fs.existsSync(fullPath)) {
-        app.use(routePath, require(`./routes/${routerName}.routes`));
-    } else {
-        // Fallback for missing routes
-        const router = express.Router();
-        router.all('*', (req, res) => res.status(501).json({ success: false, error: 'Not Implemented Yet' }));
-        app.use(routePath, router);
-    }
-};
+// Cấu hình công khai cho giao diện và MCP (để con số như phí ship chỉ nằm ở server).
+app.get('/api/config', (req, res) => {
+    res.json({ success: true, data: { shippingFee: SHIPPING_FEE, payosTimeoutMinutes: PAYOS_TIMEOUT_MINUTES, maxOrderNote: MAX_ORDER_NOTE } });
+});
 
 // Routes
-loadRoute('/api/auth', 'auth');
-loadRoute('/api/products', 'product');
-loadRoute('/api/orders', 'order');
-loadRoute('/api/account', 'account');
-loadRoute('/api/admin', 'admin');
-loadRoute('/api/blogs', 'blog');
-loadRoute('/api/discounts', 'discount');
-loadRoute('/api/employees', 'employee');
-loadRoute('/api/wishlist', 'wishlist');
-loadRoute('/api/payos', 'payos');
-loadRoute('/api/shipping', 'shipping');
-loadRoute('/api/comments', 'comment');
-loadRoute('/api/returns', 'return');
-loadRoute('/api/chat', 'chat');
-loadRoute('/api/search', 'search');
-loadRoute('/api/assistant', 'assistant');
-loadRoute('/api/tradein', 'tradein');
+const ROUTES = {
+    auth: 'auth', products: 'product', orders: 'order', account: 'account', admin: 'admin', blogs: 'blog',
+    discounts: 'discount', employees: 'employee', wishlist: 'wishlist', payos: 'payos', shipping: 'shipping',
+    comments: 'comment', returns: 'return', chat: 'chat', search: 'search', assistant: 'assistant', tradein: 'tradein',
+};
+for (const [prefix, file] of Object.entries(ROUTES)) app.use(`/api/${prefix}`, require(`./routes/${file}.routes`));
 
 // Error Handler
 app.use(errorMiddleware);
@@ -96,6 +79,7 @@ httpServer.listen(PORT, () => {
     console.log(`Vọc Records API server running on port ${PORT}`);
     // Tải mô hình tìm kiếm và tính vector ở nền, không chặn việc nhận request.
     setTimeout(() => require('./services/ai/catalog-search').warmUp(), 1000).unref();
+    startJobs();
 });
 
 const shutdown = async () => {

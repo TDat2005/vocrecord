@@ -1,9 +1,12 @@
+// Lỗi 4xx và lỗi tạo bằng fail() (expose) trả nguyên message; lỗi khác chỉ trả câu chung chung
+// để không lộ câu SQL, tên cột... cho người dùng.
 const errorMiddleware = (err, req, res, next) => {
-    console.error(err);
-    const status = Number.isInteger(err.status) && err.status >= 400 && err.status < 500 ? err.status : 500;
+    const status = Number.isInteger(err.status) && err.status >= 400 && err.status < 600 ? err.status : 500;
+    if (status >= 500) console.error(err);
+    const visible = status < 500 || err.expose === true;
     res.status(status).json({
         success: false,
-        message: status >= 500 ? 'Đã xảy ra lỗi máy chủ. Vui lòng thử lại sau.' : (err.message || 'Request không hợp lệ')
+        message: visible ? (err.message || 'Request không hợp lệ') : 'Đã xảy ra lỗi máy chủ. Vui lòng thử lại sau.'
     });
 };
 

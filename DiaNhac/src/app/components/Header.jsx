@@ -2,7 +2,9 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, NavLink, useLocation, useNavigate } from 'react-router';
 import { Menu, MessageCircle, Search, ShoppingBag, User, X } from 'lucide-react';
 import { useCart } from '../context/CartContext';
+import { useShopConfig } from '../hooks/useCachedGet';
 import { clearSession, isStaff, useCurrentUser } from '../utils/auth';
+import { formatPrice } from '../utils/format';
 import '../../styles/components/header.css';
 
 export const NAV_ITEMS = [
@@ -20,6 +22,7 @@ export function Header() {
   const location = useLocation();
   const { count } = useCart();
   const user = useCurrentUser();
+  const shippingFee = useShopConfig()?.shippingFee;
   const [query, setQuery] = useState('');
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -64,7 +67,9 @@ export function Header() {
 
   return (
     <>
-      <div className="announcement-bar">Giao hàng toàn quốc qua GHN · Phí vận chuyển đồng giá 30.000đ</div>
+      <div className="announcement-bar">
+        Giao hàng toàn quốc qua GHN{shippingFee !== undefined && ` · Phí vận chuyển đồng giá ${formatPrice(shippingFee)}`}
+      </div>
       <header className="site-header">
         <div className="container site-header__top">
           <button type="button" className="icon-button site-header__menu-toggle" onClick={() => setDrawerOpen(true)} aria-label="Mở menu">

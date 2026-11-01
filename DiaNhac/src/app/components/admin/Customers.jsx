@@ -4,20 +4,31 @@ import { useToast } from '../../context/ToastContext';
 import { api, NETWORK_ERROR } from '../../utils/api';
 import { useCurrentUser } from '../../utils/auth';
 import { formatPrice } from '../../utils/format';
-import { Badge } from '../ui';
+import { useDebounced } from '../../hooks/useDebounced';
+import { Badge, Pagination } from '../ui';
 import { PageHeader } from './PageHeader';
 
 export function Customers() {
   const toast = useToast();
   const [customers, setCustomers] = useState([]);
+  const [paging, setPaging] = useState({ page: 1, total: 0, limit: 50 });
+  const [page, setPage] = useState(1);
   const [query, setQuery] = useState('');
   const isAdmin = useCurrentUser()?.role === 'admin';
+  const keyword = useDebounced(query.trim());
 
   const load = useCallback(() => {
-    api.get('/admin/customers').then((data) => { if (data.success) setCustomers(data.data || []); }).catch(() => toast.error(NETWORK_ERROR));
-  }, [toast]);
+    const params = new URLSearchParams({ page: String(page), limit: '50' });
+    if (keyword) params.set('q', keyword);
+    api.get(`/admin/customers?${params}`).then((data) => {
+      if (!data.success) return;
+      setCustomers(data.data || []);
+      setPaging({ page: data.page || 1, total: data.total ?? 0, limit: data.limit || 50 });
+    }).catch(() => toast.error(NETWORK_ERROR));
+  }, [toast, page, keyword]);
 
   useEffect(() => { load(); }, [load]);
+  useEffect(() => { setPage(1); }, [keyword]);
 
   // Khóa tài khoản: khách không đăng nhập, không đặt hàng được; phiên đang mở bị đăng xuất ngay.
   const toggleLock = async (customer) => {
@@ -31,15 +42,10 @@ export function Customers() {
     }
   };
 
-  const keyword = query.trim().toLowerCase();
-  const visible = customers.filter((customer) => !keyword
-    || String(customer.name || '').toLowerCase().includes(keyword)
-    || String(customer.email || '').toLowerCase().includes(keyword)
-    || String(customer.phone || '').includes(keyword));
 
   return (
     <>
-      <PageHeader title="Khách hàng" subtitle={`${customers.length} khách hàng`} />
+      <PageHeader title="Khách hàng" subtitle={`${paging.total} khách hàng`} />
       <section className="card card--flush">
         <div className="admin-toolbar">
           <label className="admin-search">
@@ -53,8 +59,8 @@ export function Customers() {
               <tr><th>Khách hàng</th><th>Email</th><th>Điện thoại</th><th className="is-numeric">Đơn hoàn thành</th><th className="is-numeric">Đơn đã hủy</th><th className="is-numeric">Tổng chi tiêu</th><th>Tài khoản</th></tr>
             </thead>
             <tbody>
-              {visible.length === 0 && <tr><td colSpan={7} className="table__empty">Không có khách hàng.</td></tr>}
-              {visible.map((customer) => (
+              {customers.length === 0 && <tr><td colSpan={7} className="table__empty">Không có khách hàng.</td></tr>}
+              {customers.map((customer) => (
                 <tr key={customer.id}>
                   <td>
                     <div className="font-medium">{customer.name}</div>
@@ -78,6 +84,7 @@ export function Customers() {
             </tbody>
           </table>
         </div>
+        <Pagination page={paging.page} total={paging.total} limit={paging.limit} onChange={setPage} />
       </section>
     </>
   );

@@ -11,13 +11,13 @@ const FEATURES = [
   { icon: Music, title: 'Đa dạng thể loại', desc: 'Từ jazz, rock đến soul và electronic — chúng tôi có tất cả.' },
 ];
 
-function ProductSection({ title, products, loading, error, badge, subtle }) {
+function ProductSection({ title, products, loading, error, badge, subtle, to = '/shop' }) {
   return (
     <section className={`section ${subtle ? 'section--subtle' : ''}`}>
       <div className="container">
         <div className="section-header">
           <h2 className="section-title">{title}</h2>
-          <Link to="/shop" className="link-underline text-sm">Xem tất cả</Link>
+          <Link to={to} className="link-underline text-sm">Xem tất cả</Link>
         </div>
         {loading && <p className="loading-text">Đang tải sản phẩm...</p>}
         {!loading && error && <p className="loading-text">{error}</p>}
@@ -32,7 +32,10 @@ function ProductSection({ title, products, loading, error, badge, subtle }) {
 }
 
 export function Home() {
-  const { products, loading, error } = useProducts();
+  // Sản phẩm mới nhất (mã lớn nhất) và đĩa cũ đã thẩm định. Trước đây nhãn bị ngược:
+  // "Sản phẩm nổi bật" là 4 sản phẩm mới nhất, còn "Hàng mới về" lại là 4 sản phẩm cũ hơn.
+  const latest = useProducts({ sort: 'newest' }, { pageSize: 4 });
+  const used = useProducts({ item_type: 'cu', sort: 'newest' }, { pageSize: 4 });
 
   return (
     <div className="home-page">
@@ -47,11 +50,11 @@ export function Home() {
               <span className="btn btn--light">Săn ngay</span>
             </div>
           </Link>
-          <Link to="/shop" className="hero-card">
+          <Link to="/shop?loai=cu" className="hero-card">
             <SafeImage src="/images/products/vinyl-04.webp" alt="" loading="eager" className="hero-card__image" />
             <div className="hero-card__content">
-              <h2 className="hero-card__title">Đĩa vintage</h2>
-              <p className="hero-card__desc">Hơn 5000+ đĩa qua sử dụng được kiểm tra và lọc kĩ lưỡng.</p>
+              <h2 className="hero-card__title">Đĩa cũ đã thẩm định</h2>
+              <p className="hero-card__desc">Mỗi bản được kiểm tra, vệ sinh và chấm tình trạng theo thang Goldmine trước khi bán.</p>
               <span className="btn btn--light">Khám phá</span>
             </div>
           </Link>
@@ -71,7 +74,7 @@ export function Home() {
         </div>
       </section>
 
-      <ProductSection title="Sản phẩm nổi bật" products={products.slice(0, 4)} loading={loading} error={error} />
+      <ProductSection title="Hàng mới về" products={latest.products} loading={latest.loading} error={latest.error} badge="Mới" />
 
       {/* Ảnh kèm nội dung khuyến mãi */}
       <section className="section">
@@ -79,16 +82,18 @@ export function Home() {
           <div className="promo">
             <SafeImage src="/images/products/music-02.webp" alt="Bộ sưu tập âm nhạc analog" className="promo__image" />
             <div className="promo__content">
-              <p className="promo__eyebrow">Ưu đãi</p>
-              <h2 className="promo__title">Big sale mùa hè</h2>
-              <p className="text-muted">Giảm đến 30% cho tất cả đĩa than Pop &amp; Rock.</p>
-              <Link to="/shop" className="btn btn--primary">Mua ngay kẻo lỡ</Link>
+              <p className="promo__eyebrow">Bán &amp; ký gửi</p>
+              <h2 className="promo__title">Có đĩa cũ không còn nghe?</h2>
+              <p className="text-muted">Chụp ảnh đĩa để AI ước tính giá, rồi bán đứt cho cửa hàng hoặc ký gửi để bán với giá cao hơn.</p>
+              <Link to="/sell" className="btn btn--primary">Bán đĩa cũ</Link>
             </div>
           </div>
         </div>
       </section>
 
-      <ProductSection title="Hàng mới về" products={products.slice(4, 8)} loading={loading} error={error} badge="Mới" subtle />
+      {(used.loading || used.products.length > 0) && (
+        <ProductSection title="Đĩa cũ đã thẩm định" products={used.products} loading={used.loading} error={used.error} subtle to="/shop?loai=cu" />
+      )}
     </div>
   );
 }

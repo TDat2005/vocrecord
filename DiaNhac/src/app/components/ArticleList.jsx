@@ -5,15 +5,18 @@ import { SafeImage } from './SafeImage';
 import { Badge, EmptyState } from './ui';
 import { api } from '../utils/api';
 import { formatLongDate } from '../utils/format';
-import { DIFFICULTY_TONES, getArticleCategory, getArticleExcerpt } from '../data/articles';
+import { DIFFICULTY_TONES, getArticleCategory, getArticleExcerpt, useBlogMeta } from '../data/articles';
 import '../../styles/pages/blog.css';
 
 // Danh sách bài viết cho trang Blog và Hướng dẫn (giống trang blog của Dawn).
-export function ArticleList({ type, title, description, baseCategories, detailPath }) {
+const ALL = 'Tất cả';
+
+export function ArticleList({ type, title, description, detailPath }) {
+  const meta = useBlogMeta();
   const [articles, setArticles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [category, setCategory] = useState('Tất cả');
+  const [category, setCategory] = useState(ALL);
 
   useEffect(() => {
     let cancelled = false;
@@ -29,10 +32,10 @@ export function ArticleList({ type, title, description, baseCategories, detailPa
   }, [type]);
 
   const categories = useMemo(
-    () => Array.from(new Set([...baseCategories, ...articles.map((article) => getArticleCategory(article, type))])),
-    [articles, baseCategories, type],
+    () => Array.from(new Set([ALL, ...(meta?.categories[type] || []), ...articles.map(getArticleCategory)])),
+    [articles, meta, type],
   );
-  const visible = articles.filter((article) => category === 'Tất cả' || getArticleCategory(article, type) === category);
+  const visible = articles.filter((article) => category === ALL || getArticleCategory(article) === category);
 
   return (
     <div className="page">
@@ -65,7 +68,7 @@ export function ArticleList({ type, title, description, baseCategories, detailPa
                 </div>
                 <div className="article-card__body">
                   <div className="inline">
-                    <span className="article-card__category">{getArticleCategory(article, type)}</span>
+                    <span className="article-card__category">{getArticleCategory(article)}</span>
                     {type === 'huongdan' && (
                       <Badge tone={DIFFICULTY_TONES[article.difficulty || 'Dễ']}>{article.difficulty || 'Dễ'}</Badge>
                     )}

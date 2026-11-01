@@ -395,7 +395,7 @@ const ship = { address: '12 Thái Hà, Đống Đa, Hà Nội', nguoiNhan: 'Khá
     return [r.status === 400, `HTTP ${r.status} ${r.data.message || ''}`];
   });
   await test('T62', 'Admin khóa khách đang đăng nhập', 'Phiên của khách bị chặn ngay (HTTP 401), mở khóa thì dùng lại được', async () => {
-    const customer = (await call('GET', '/admin/customers', null, A)).data.data.find((c) => c.email === 'khach2@vocrecord.local');
+    const customer = (await call('GET', '/admin/customers?q=khach2%40vocrecord.local', null, A)).data.data.find((c) => c.email === 'khach2@vocrecord.local');
     if (!customer) return [true, 'bỏ qua: không có tài khoản khach2@vocrecord.local'];
     const token = await login(['khach2@vocrecord.local', ACC.customer[1]]);
     await call('PUT', `/admin/customers/${customer.id}/status`, { active: false }, A);
@@ -403,6 +403,121 @@ const ship = { address: '12 Thái Hà, Đống Đa, Hà Nội', nguoiNhan: 'Khá
     await call('PUT', `/admin/customers/${customer.id}/status`, { active: true }, A);
     const unlocked = await call('GET', '/account/profile', null, token);
     return [locked.status === 401 && unlocked.status === 200, `khi khóa HTTP ${locked.status} · mở khóa HTTP ${unlocked.status}`];
+  });
+
+  // ---- Hồi quy các lỗi sửa sau review code ----
+  const completedOrder = async (qty = 1) => {
+    const { id } = await inStockProduct();
+    const orderId = (await call('POST', '/orders', { ...ship, items: [{ id, qty }] }, K)).data.order_id;
+    await call('PUT', `/orders/${orderId}/status`, { status: 'hoanthanh' }, N);
+    return orderId;
+  };
+  await test('T63', 'Hoàn tất trả hàng rồi gửi yêu cầu trả lần 2 cho cùng món', 'Lần 2 bị từ chối, kho chỉ cộng 1 lần', async () => {
+    const request = (await call('GET', '/returns/mine', null, K)).data.data.find((r) => r.order_id === o3);
+    const s0 = await stockOf(P3);
+    for (const status of ['dangxuly', 'chapnhan', 'danghoan', 'hoantat']) {
+      await call('PUT', `/returns/${request.id}/status`, { status }, N);
+    }
+    const s1 = await stockOf(P3);
+    const again = await call('POST', '/returns', { order_id: o3, reason: 'hang_loi', description: 'Đĩa vẫn bị xước' }, K);
+    const reopen = await call('PUT', `/returns/${request.id}/status`, { status: 'moi' }, N);
+    return [s1 === s0 + 1 && again.status === 400 && reopen.status === 409,
+      `tồn kho ${s0} → ${s1} · gửi lại HTTP ${again.status} ${again.data.message} · mở lại HTTP ${reopen.status}`];
+  });
+  await test('T64', 'Gửi trùng một món 2 lần trong một yêu cầu trả hàng', 'HTTP 400 (vượt số lượng mua)', async () => {
+    const orderId = await completedOrder(1);
+    const [item] = (await call('GET', `/returns/order/${orderId}`, null, K)).data.data.items;
+    const r = await call('POST', '/returns', {
+      order_id: orderId, reason: 'hang_loi', description: 'Đĩa bị xước nặng',
+      items: [{ detail_id: item.detail_id, quantity: 1 }, { detail_id: item.detail_id, quantity: 1 }],
+    }, K);
+    return [r.status === 400, `HTTP ${r.status} ${r.data.message || ''}`];
+  });
+  await test('T65', 'Tiền hoàn trả hàng trừ phần mã giảm giá', 'Hoàn = giá × (1 − giảm/tạm tính)', async () => {
+    const { id, price } = await inStockProduct();
+    const code = `QARF${Date.now() % 100000}`;
+    await call('POST', '/discounts', { Code: code, LoaiGiamGia: 'percent', GiaTri: 10 }, A);
+    const orderId = (await call('POST', '/orders', { ...ship, discountCode: code, items: [{ id, qty: 1 }] }, K)).data.order_id;
+    await call('PUT', `/orders/${orderId}/status`, { status: 'hoanthanh' }, N);
+    const r = await call('POST', '/returns', { order_id: orderId, reason: 'sai_san_pham', description: 'Giao nhầm phiên bản' }, K);
+    const expected = Math.round(Number(price) * 0.9);
+    return [r.data.success && Number(r.data.refund_amount) === expected, `hoàn ${r.data.refund_amount}đ (mong đợi ${expected}đ)`];
+  });
+  await test('T66', 'Đặt mặc định cho địa chỉ không thuộc về khách', 'HTTP 404, địa chỉ mặc định cũ giữ nguyên', async () => {
+    await call('POST', '/account/addresses', { nguoiNhan: 'Khách CI', soDienThoai: '0912345678', diaChi: '12 Thái Hà, Đống Đa', isDefault: true }, K);
+    const r = await call('PUT', '/account/addresses/999999/default', {}, K);
+    const defaults = (await call('GET', '/account/addresses', null, K)).data.data.filter((a) => Number(a.MacDinh) === 1);
+    return [r.status === 404 && defaults.length === 1, `HTTP ${r.status} · ${defaults.length} địa chỉ mặc định`];
+  });
+  await test('T67', 'Đặt hàng với ghi chú quá 200 ký tự', 'HTTP 400 (không lỗi SQL)', async () => {
+    const { id } = await inStockProduct();
+    const r = await call('POST', '/orders', { ...ship, ghiChu: 'x'.repeat(300), items: [{ id, qty: 1 }] }, K);
+    if (r.data.order_id) await call('PUT', `/orders/${r.data.order_id}/cancel`, {}, K);
+    return [r.status === 400 && !/column|SQL/i.test(r.data.message || ''), `HTTP ${r.status} ${r.data.message || ''}`];
+  });
+  await test('T68', 'Phân trang danh sách sản phẩm', 'Có tổng số, trang 2 khác trang 1', async () => {
+    const p1 = (await call('GET', '/products?limit=5&page=1')).data;
+    const p2 = (await call('GET', '/products?limit=5&page=2')).data;
+    const overlap = p2.data.some((p) => p1.data.some((q) => q.id === p.id));
+    return [p1.data.length === 5 && p1.total > 5 && !overlap, `tổng ${p1.total} · trang 1: ${p1.data.length} · trang 2: ${p2.data.length}`];
+  });
+  await test('T69', 'Thêm một sản phẩm vào yêu thích 2 lần', 'Lần 2 HTTP 409, chỉ 1 dòng', async () => {
+    await call('DELETE', '/wishlist', { product_id: P3 }, K);
+    await call('POST', '/wishlist', { product_id: P3 }, K);
+    const second = await call('POST', '/wishlist', { product_id: P3 }, K);
+    const count = (await call('GET', '/wishlist', null, K)).data.data.filter((item) => item.id === P3).length;
+    await call('DELETE', '/wishlist', { product_id: P3 }, K);
+    return [second.status === 409 && count === 1, `lần 2 HTTP ${second.status} · ${count} dòng`];
+  });
+  await test('T70', 'Mã giảm giá hết hạn "hôm nay" vẫn dùng được trong ngày', 'Áp dụng được', async () => {
+    const today = new Date(Date.now() + 7 * 3600000).toISOString().slice(0, 10); // ngày theo giờ Việt Nam
+    const code = `QATD${Date.now() % 100000}`;
+    await call('POST', '/discounts', { Code: code, LoaiGiamGia: 'fixed', GiaTri: 10000, NgayHetHan: today }, A);
+    const r = await call('POST', '/discounts/check', { code, cartTotal: 500000 }, K);
+    return [r.data.success === true, `${today}: ${r.data.message}`];
+  });
+  await test('T71', 'Admin hạ quyền một admin khác đang đăng nhập', 'Vé cũ mất quyền admin ngay (HTTP 403)', async () => {
+    const username = `ci_hq${Date.now() % 100000}`;
+    await call('POST', '/employees', { username, password: ACC.admin[1], name: 'Admin tạm', role: 'admin' }, A);
+    const token = await login([username, ACC.admin[1]]);
+    const before = await call('GET', '/employees', null, token);
+    const employee = before.data.data.find((e) => e.username === username);
+    await call('PUT', `/employees/${employee.id}`, { name: 'Admin tạm', role: 'nhanvien' }, A);
+    const after = await call('GET', '/employees', null, token);
+    await call('PUT', `/employees/${employee.id}/toggle`, { status: 0 }, A);
+    return [before.status === 200 && after.status === 403, `trước HTTP ${before.status} · sau khi hạ quyền HTTP ${after.status}`];
+  });
+  await test('T72', 'Gửi vai trò lạ khi tạo nhân viên', 'HTTP 400', async () => {
+    const r = await call('POST', '/employees', { username: `ci_role${Date.now() % 100000}`, password: '123456', name: 'X', role: 'superadmin' }, A);
+    return [r.status === 400, `HTTP ${r.status} ${r.data.message || ''}`];
+  });
+  await test('T74', 'Gửi yêu cầu trả hàng kèm ảnh bằng chứng', 'Lưu ảnh, xem được qua đường dẫn có khóa', async () => {
+    const orderId = await completedOrder(1);
+    const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
+    const created = await call('POST', '/returns', { order_id: orderId, reason: 'hang_loi', description: 'Bìa bị móp góc phải', photos: [png] }, K);
+    const detail = (await call('GET', `/returns/${created.data.id}`, null, N)).data.data;
+    const image = detail?.photos?.[0] ? await fetch(BASE.replace(/\/api$/, '') + detail.photos[0]) : null;
+    const fake = await call('POST', '/returns', { order_id: orderId, reason: 'hang_loi', description: 'Ảnh giả mạo', photos: ['data:image/png;base64,aGVsbG8='] }, K);
+    return [created.data.success && detail.photos.length === 1 && image?.status === 200 && image.headers.get('content-type') === 'image/png' && fake.status === 400,
+      `${detail?.photos?.length || 0} ảnh · tải ảnh HTTP ${image?.status} · ảnh giả HTTP ${fake.status}`];
+  });
+  await test('T75', 'Chuyển yêu cầu trả hàng nhảy cóc (Mới → Hoàn tất)', 'HTTP 409, đi đúng từng bước thì được', async () => {
+    const orderId = await completedOrder(1);
+    const created = await call('POST', '/returns', { order_id: orderId, reason: 'hang_loi', description: 'Đĩa bị cong vênh' }, K);
+    const skip = await call('PUT', `/returns/${created.data.id}/status`, { status: 'hoantat' }, N);
+    const step = await call('PUT', `/returns/${created.data.id}/status`, { status: 'dangxuly' }, N);
+    return [skip.status === 409 && step.status === 200, `nhảy cóc HTTP ${skip.status} · sang Đang xử lý HTTP ${step.status}`];
+  });
+  // Để cuối: đổi mật khẩu làm vé cũ của khách (K) hết hiệu lực.
+  await test('T73', 'Đổi mật khẩu đăng xuất các phiên cũ', 'Vé cũ HTTP 401, vé mới dùng được', async () => {
+    const other = await login(ACC.customer);
+    await new Promise((resolve) => setTimeout(resolve, 1500)); // vé cũ phải được cấp trước lúc đổi mật khẩu
+    const changed = await call('PUT', '/account/change-password', { currentPassword: ACC.customer[1], newPassword: `${ACC.customer[1]}x` }, K);
+    const oldSession = await call('GET', '/account/profile', null, other);
+    const newSession = await call('GET', '/account/profile', null, changed.data.token);
+    await call('PUT', '/account/change-password', { currentPassword: `${ACC.customer[1]}x`, newPassword: ACC.customer[1] }, changed.data.token);
+    return [changed.data.success && oldSession.status === 401 && newSession.status === 200,
+      `vé cũ HTTP ${oldSession.status} · vé mới HTTP ${newSession.status}`];
   });
 
   const pass = results.filter((r) => r.ok).length;

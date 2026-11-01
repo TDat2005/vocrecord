@@ -20,7 +20,7 @@ function EmployeeFormModal({ initial, onClose, onSaved }) {
     event.preventDefault();
     setSaving(true);
     try {
-      // Sửa: PUT /employees/:MaNV (body kèm account_id). Trước đây gọi nhầm POST /employees/:account_id nên không lưu được.
+      // Sửa: PUT /employees/:MaNV. Server tự tìm tài khoản theo mã nhân viên.
       const data = isNew ? await api.post('/employees', form) : await api.put(`/employees/${form.id}`, form);
       if (data.success) {
         toast.success(data.message || 'Đã lưu nhân viên');
@@ -94,7 +94,7 @@ export function Employees() {
     const locking = Number(employee.status) === 1;
     if (!window.confirm(`${locking ? 'Khóa' : 'Mở khóa'} tài khoản ${employee.username}?`)) return;
     try {
-      const data = await api.put(`/employees/${employee.account_id}/toggle`, { account_id: employee.account_id, status: locking ? 0 : 1 });
+      const data = await api.put(`/employees/${employee.id}/toggle`, { status: locking ? 0 : 1 });
       if (data.success) {
         toast.success(data.message);
         load();

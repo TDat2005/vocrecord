@@ -3,14 +3,13 @@ import { ExternalLink, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useToast } from '../../context/ToastContext';
 import { api, NETWORK_ERROR } from '../../utils/api';
 import { formatDate } from '../../utils/format';
+import { useBlogMeta } from '../../data/articles';
 import { Badge, Modal } from '../ui';
 import { PageHeader } from './PageHeader';
 
-const BLOG_CATEGORIES = ['Kiến thức Vinyl', 'Review Album', 'Nghệ sĩ & Câu chuyện', 'Văn hóa Analog'];
-const GUIDE_CATEGORIES = ['Hướng dẫn cơ bản', 'Bảo trì thiết bị', 'Kỹ thuật nâng cao'];
-
+// Chuyên mục, độ khó lấy từ server (GET /blogs/meta) để form luôn khớp quy tắc kiểm tra ở server.
 const EMPTY_FORM = {
-  title: '', type: 'blog', status: 'nhap', category: BLOG_CATEGORIES[0], difficulty: '',
+  title: '', type: 'blog', status: 'nhap', category: '', difficulty: '',
   summary: '', duration: '', audience: '', tools: '', steps: '', content: '',
   image: '/images/products/catalog/a-love-supreme.jpg',
 };
@@ -28,11 +27,14 @@ const stepsToText = (steps) => {
 
 function ContentFormModal({ item, onClose, onSaved }) {
   const toast = useToast();
+  const meta = useBlogMeta();
+  const categoriesOf = (type) => meta?.categories[type] || [];
+  const difficulties = meta?.difficulties || [];
   const [form, setForm] = useState(item ? {
     title: item.title || '',
     type: item.type || 'blog',
     status: item.status || 'nhap',
-    category: item.category || (item.type === 'huongdan' ? GUIDE_CATEGORIES[0] : BLOG_CATEGORIES[0]),
+    category: item.category || '',
     difficulty: item.difficulty || '',
     summary: item.summary || '',
     duration: item.duration || '',
@@ -51,8 +53,8 @@ function ContentFormModal({ item, onClose, onSaved }) {
     setForm((current) => ({
       ...current,
       type,
-      category: type === 'blog' ? BLOG_CATEGORIES[0] : GUIDE_CATEGORIES[0],
-      difficulty: type === 'blog' ? '' : 'Dễ',
+      category: '',
+      difficulty: '',
     }));
   };
 
@@ -60,7 +62,13 @@ function ContentFormModal({ item, onClose, onSaved }) {
     event.preventDefault();
     setSaving(true);
     try {
-      const payload = { ...form, steps: isGuide ? form.steps : '' };
+      // Chưa chọn thì dùng mục đầu tiên đang hiển thị trong ô chọn.
+      const payload = {
+        ...form,
+        category: form.category || categoriesOf(form.type)[0] || '',
+        difficulty: isGuide ? (form.difficulty || difficulties[0] || '') : '',
+        steps: isGuide ? form.steps : '',
+      };
       const data = item ? await api.put(`/blogs/${item.id}`, payload) : await api.post('/blogs', payload);
       if (data.success) {
         toast.success(item ? 'Đã cập nhật bài viết' : 'Đã tạo bài viết');
@@ -111,17 +119,15 @@ function ContentFormModal({ item, onClose, onSaved }) {
         <div className="field-row">
           <label className="field">
             <span className="label">Chuyên mục</span>
-            <select className="select" value={form.category} onChange={update('category')}>
-              {(isGuide ? GUIDE_CATEGORIES : BLOG_CATEGORIES).map((category) => <option key={category} value={category}>{category}</option>)}
+            <select className="select" value={form.category || categoriesOf(form.type)[0] || ''} onChange={update('category')}>
+              {categoriesOf(form.type).map((category) => <option key={category} value={category}>{category}</option>)}
             </select>
           </label>
           {isGuide ? (
             <label className="field">
               <span className="label">Độ khó</span>
-              <select className="select" value={form.difficulty || 'Dễ'} onChange={update('difficulty')}>
-                <option value="Dễ">Dễ</option>
-                <option value="Trung bình">Trung bình</option>
-                <option value="Nâng cao">Nâng cao</option>
+              <select className="select" value={form.difficulty || difficulties[0] || ''} onChange={update('difficulty')}>
+                {difficulties.map((difficulty) => <option key={difficulty} value={difficulty}>{difficulty}</option>)}
               </select>
             </label>
           ) : (
