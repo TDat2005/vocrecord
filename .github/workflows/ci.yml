@@ -64,6 +64,10 @@ jobs:
         working-directory: server
         run: for f in $(find src tests -name '*.js'); do node --check "$f"; done
 
+      - name: Kiểm thử sản phẩm được trợ lý giới thiệu
+        working-directory: server
+        run: node --test tests/recommendations.test.js tests/assistant-selection.test.js
+
       - name: Dựng CSDL từ script migration
         run: bash deploy/init-db.sh
 

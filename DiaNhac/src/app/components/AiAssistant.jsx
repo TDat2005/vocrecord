@@ -99,6 +99,7 @@ function ProductStrip({ products, onAdd, onNavigate }) {
               <SafeImage src={product.image} alt={product.title} />
             </Link>
             <Link to={`/product/${product.id}`} className="assistant-product__title line-clamp-2" onClick={onNavigate}>{product.title}</Link>
+            {product.artist && <span className="assistant-product__artist">{product.artist}</span>}
             <span className="assistant-product__price">{formatPrice(product.price)}</span>
             <button type="button" className="btn btn--secondary btn--sm btn--full" disabled={soldOut} onClick={() => onAdd(product)}>
               {soldOut ? 'Hết hàng' : 'Thêm vào giỏ'}
@@ -220,7 +221,7 @@ export function AiAssistant() {
         } else if (event.type === 'tool') {
           updateLast((m) => ({ ...m, status: `${event.label}...` }));
         } else if (event.type === 'products') {
-          updateLast((m) => ({ ...m, products: mergeProducts(m.products, event.items) }));
+          updateLast((m) => ({ ...m, products: event.replace ? mergeProducts([], event.items) : mergeProducts(m.products, event.items) }));
         } else if (event.type === 'cart_add') {
           addProduct(event.product, event.quantity);
         } else if (event.type === 'error' && event.fallback) {
