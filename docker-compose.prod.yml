@@ -10,6 +10,8 @@ services:
       # User riêng cho API (deploy/db-app-user.sh tạo). Bỏ trống thì API dùng root như trước.
       MYSQL_APP_USER: ${MYSQL_APP_USER:-}
       MYSQL_APP_PASSWORD: ${MYSQL_APP_PASSWORD:-}
+    ports:
+      - "127.0.0.1:3306:3306"
     command: --default-time-zone=+07:00
     volumes:
       - db_data:/var/lib/mysql
